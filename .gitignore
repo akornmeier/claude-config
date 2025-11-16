@@ -1,0 +1,37 @@
+.claude/
+debug/
+file-history/
+ide/
+session-env/
+shell-snapshots/
+statsig/
+todos/
+plugins/cache/*
+
+# Local logs and tool files
+*.log
+*.tmp
+
+# Environment files
+.env
+.env.*
+.env.local
+
+# Private keys
+*.pem
+id_rsa*
+
+# Project configuration files
+projects/
+projects/*
+
+# Chat history files
+*.chat.json
+history.jsonl
+
+# Secrets folder (if any)
+secrets/
+
+# Node deps / build (optional - keep if repo doesn't already ignore these)
+node_modules/
+dist/
