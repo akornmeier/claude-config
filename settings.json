@@ -11,72 +11,6 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/tk/Code/go/bin/claudio"
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/tk/Code/go/bin/claudio"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/tk/Code/go/bin/claudio"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/tk/Code/go/bin/claudio"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/tk/Code/go/bin/claudio"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/tk/Code/go/bin/claudio"
-          }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
       {
         "matcher": ".*",
@@ -89,10 +23,21 @@
       }
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "npx -y @owloops/claude-powerline@latest --style=capsule --theme=nord"
+  },
   "enabledPlugins": {
-    "security-guidance@claude-code-plugins": true,
     "code-review@claude-code-plugins": true,
-    "superpowers-developing-for-claude-code@superpowers-marketplace": true,
-    "superpowers@superpowers-marketplace": true
-  }
+    "security-guidance@claude-code-plugins": true,
+    "superpowers-developing-for-claude-code@superpowers-marketplace": false,
+    "superpowers@superpowers-marketplace": true,
+    "elements-of-style@superpowers-marketplace": false,
+    "explanatory-output-style@claude-code-plugins": true,
+    "feature-dev@claude-code-plugins": true,
+    "frontend-design@claude-code-plugins": true,
+    "hookify@claude-code-plugins": false,
+    "typescript-lsp@claude-plugins-official": true
+  },
+  "alwaysThinkingEnabled": true
 }

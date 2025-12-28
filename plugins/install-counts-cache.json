@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "fetchedAt": "2025-12-21T14:16:24.205Z",
+  "counts": [
+    {
+      "plugin": "context7@claude-plugins-official",
+      "unique_installs": 36245
+    },
+    {
+      "plugin": "frontend-design@claude-plugins-official",
+      "unique_installs": 32615
+    },
+    {
+      "plugin": "serena@claude-plugins-official",
+      "unique_installs": 21511
+    },
+    {
+      "plugin": "github@claude-plugins-official",
+      "unique_installs": 20597
+    },
+    {
+      "plugin": "feature-dev@claude-plugins-official",
+      "unique_installs": 16414
+    },
+    {
+      "plugin": "code-review@claude-plugins-official",
+      "unique_installs": 13511
+    },
+    {
+      "plugin": "atlassian@claude-plugins-official",
+      "unique_installs": 12990
+    },
+    {
+      "plugin": "supabase@claude-plugins-official",
+      "unique_installs": 12103
+    },
+    {
+      "plugin": "commit-commands@claude-plugins-official",
+      "unique_installs": 11109
+    },
+    {
+      "plugin": "security-guidance@claude-plugins-official",
+      "unique_installs": 9269
+    },
+    {
+      "plugin": "agent-sdk-dev@claude-plugins-official",
+      "unique_installs": 9026
+    },
+    {
+      "plugin": "figma@claude-plugins-official",
+      "unique_installs": 8889
+    },
+    {
+      "plugin": "pr-review-toolkit@claude-plugins-official",
+      "unique_installs": 8741
+    },
+    {
+      "plugin": "Notion@claude-plugins-official",
+      "unique_installs": 5575
+    },
+    {
+      "plugin": "explanatory-output-style@claude-plugins-official",
+      "unique_installs": 5081
+    },
+    {
+      "plugin": "laravel-boost@claude-plugins-official",
+      "unique_installs": 4652
+    },
+    {
+      "plugin": "linear@claude-plugins-official",
+      "unique_installs": 4562
+    },
+    {
+      "plugin": "ralph-wiggum@claude-plugins-official",
+      "unique_installs": 4444
+    },
+    {
+      "plugin": "playwright@claude-plugins-official",
+      "unique_installs": 4114
+    },
+    {
+      "plugin": "plugin-dev@claude-plugins-official",
+      "unique_installs": 3875
+    },
+    {
+      "plugin": "hookify@claude-plugins-official",
+      "unique_installs": 3822
+    },
+    {
+      "plugin": "learning-output-style@claude-plugins-official",
+      "unique_installs": 3710
+    },
+    {
+      "plugin": "sentry@claude-plugins-official",
+      "unique_installs": 3294
+    },
+    {
+      "plugin": "gitlab@claude-plugins-official",
+      "unique_installs": 2620
+    },
+    {
+      "plugin": "slack@claude-plugins-official",
+      "unique_installs": 2426
+    },
+    {
+      "plugin": "greptile@claude-plugins-official",
+      "unique_installs": 2324
+    },
+    {
+      "plugin": "vercel@claude-plugins-official",
+      "unique_installs": 1501
+    },
+    {
+      "plugin": "firebase@claude-plugins-official",
+      "unique_installs": 726
+    },
+    {
+      "plugin": "asana@claude-plugins-official",
+      "unique_installs": 460
+    },
+    {
+      "plugin": "figma-mcp@claude-plugins-official",
+      "unique_installs": 85
+    },
+    {
+      "plugin": "stripe@claude-plugins-official",
+      "unique_installs": 60
+    },
+    {
+      "plugin": "example-plugin@claude-plugins-official",
+      "unique_installs": 27
+    }
+  ]
+}
