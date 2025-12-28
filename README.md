@@ -53,6 +53,13 @@ Hooks are event-triggered commands that run during Claude Code's lifecycle. All 
 
 ### Claudio Tool
 
+Install `claudio` by running this command:
+
+```bash
+go install claudio.click/cmd/claudio@latest
+claudio install
+```
+
 Located at `/Users/tk/Code/go/bin/claudio`, this tool provides real-time audio feedback:
 - Plays sounds while Claude thinks
 - Audio cues during typing/output

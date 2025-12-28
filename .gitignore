@@ -35,3 +35,7 @@ secrets/
 # Node deps / build (optional - keep if repo doesn't already ignore these)
 node_modules/
 dist/
+
+# Repo specific files
+powerline/*
+stats-cache.json
