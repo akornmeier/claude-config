@@ -150,6 +150,36 @@
         "lastUpdated": "2026-01-14T13:21:43.306Z",
         "gitCommitSha": "3ee24c155204a873466fba5127b7737f0ace34d6"
       }
+    ],
+    "pyright-lsp@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/tk/.claude/plugins/cache/claude-plugins-official/pyright-lsp/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-01-19T17:10:07.913Z",
+        "lastUpdated": "2026-01-19T17:10:07.913Z",
+        "gitCommitSha": "96276205880a60fd66bbae981f5ab568e70c4cbf"
+      }
+    ],
+    "context7@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/tk/.claude/plugins/cache/claude-plugins-official/context7/96276205880a",
+        "version": "96276205880a",
+        "installedAt": "2026-01-19T17:13:08.686Z",
+        "lastUpdated": "2026-01-19T17:13:08.686Z",
+        "gitCommitSha": "96276205880a60fd66bbae981f5ab568e70c4cbf"
+      }
+    ],
+    "feature-dev@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/Users/tk/.claude/plugins/cache/claude-plugins-official/feature-dev/96276205880a",
+        "version": "96276205880a",
+        "installedAt": "2026-01-19T17:13:08.708Z",
+        "lastUpdated": "2026-01-19T17:13:08.708Z",
+        "gitCommitSha": "96276205880a60fd66bbae981f5ab568e70c4cbf"
+      }
     ]
   }
 }
