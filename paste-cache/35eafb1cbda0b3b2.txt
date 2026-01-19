@@ -1,0 +1,35 @@
+A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <SafeFragment fallback={null}>
+      <Transitioner>
+      <MatchesInner>
+        <CatchBoundary getResetKey={function getResetKey} errorComponent={function ErrorComponent} ...>
+          <CatchBoundaryImpl getResetKey={function getResetKey} onCatch={function onCatch}>
+            <MatchImpl matchId="__root__/">
+              <SafeFragment>
+                <SafeFragment fallback={null}>
+                  <SafeFragment getResetKey={function getResetKey} errorComponent={function ErrorComponent} ...>
+                    <SafeFragment fallback={function fallback}>
+                      <MatchInnerImpl matchId="__root__/">
+                        <RootComponent>
+                          <RootDocument>
+                            <html lang="en">
+                              <head>
+                              <body
+                                className="noise-bg bg-stone-100 dark:bg-stone-900"
+-                               data-new-gr-c-s-check-loaded="8.934.0"
+-                               data-gr-ext-installed=""
+                              >
+react-dom-client.development.js:5439:19
+Base UI: A component that acts as a button was not rendered as a native <button>, which does not match the default. Ensure that the element passed to the `render` prop of the component is a real <button>, or set the `nativeButton` prop on the component to `false`.
