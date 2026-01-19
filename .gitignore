@@ -6,11 +6,24 @@ session-env/
 shell-snapshots/
 statsig/
 todos/
-plugins/cache/*
+
+# Plugin system
+plugins/cache/
+plugins/install-counts-cache.json
+
+# Session/temporary data
+cache/
+paste-cache/
+plans/
+telemetry/
 
 # Local logs and tool files
 *.log
 *.tmp
+
+# Python bytecode
+__pycache__/
+*.pyc
 
 # Environment files
 .env
