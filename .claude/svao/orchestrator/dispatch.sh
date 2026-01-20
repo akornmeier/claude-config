@@ -36,6 +36,9 @@ MAX_ITERATIONS="${MAX_ITERATIONS:-50}"
 CHECKPOINT_DIR="$HOME/.claude/svao/orchestrator/checkpoints"
 CHECKPOINT_INVOKER="$CHECKPOINT_DIR/invoke.sh"
 
+# Progress writer
+PROGRESS_WRITER="$SCRIPT_DIR/progress-writer.sh"
+
 # State (use temp files since bash associative arrays don't export well)
 ITERATION=0
 SESSION_ID=""
@@ -608,6 +611,10 @@ $(echo "$task_json" | jq -r '"Description: \(.description)\nFiles: \(.files | jo
   add_active "$pid" "$task_id"
 
   log_agent "Agent PID $pid assigned to task $task_id"
+
+  # Log progress
+  local progress_file="$(dirname "$state_file")/progress.md"
+  "$PROGRESS_WRITER" log "$progress_file" task_started "$task_id" "$agent_type" || true
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -630,6 +637,10 @@ check_agent_status() {
     completed)
       log_success "Task $task_id completed"
       update_task_status "$state_file" "$task_id" "completed"
+      # Log progress
+      local progress_file="$(dirname "$state_file")/progress.md"
+      local duration=$(jq -r '.duration_seconds // 0' "$status_file")
+      "$PROGRESS_WRITER" log "$progress_file" task_completed "$task_id" "$duration" || true
       return 0
       ;;
     failed)
@@ -732,6 +743,14 @@ run_dispatch_loop() {
   jq '.session.status = "running"' "$state_file" > "$tmp_file"
   mv "$tmp_file" "$state_file"
 
+  # Write progress log entry
+  local progress_file="$(dirname "$state_file")/progress.md"
+  if [[ "$resume" == "true" ]]; then
+    "$PROGRESS_WRITER" log "$progress_file" session_resume "Resuming from iteration $ITERATION" || true
+  else
+    "$PROGRESS_WRITER" log "$progress_file" session_start "Starting orchestration with $MAX_PARALLEL parallel agents" || true
+  fi
+
   log_info "Starting dispatch loop (max parallel: $MAX_PARALLEL)"
 
   while [[ $ITERATION -lt $MAX_ITERATIONS ]]; do
@@ -745,6 +764,10 @@ run_dispatch_loop() {
     local progress=$(jq -r '.summary.progress_percent' "$state_file")
     if [[ "$progress" == "100" ]]; then
       log_success "All tasks complete!"
+      local progress_file="$(dirname "$state_file")/progress.md"
+      local summary
+      summary=$(jq -r '"Completed \(.summary.completed) tasks in \(.session.iteration) iterations"' "$state_file")
+      "$PROGRESS_WRITER" log "$progress_file" session_complete "$summary" || true
       break
     fi
 
@@ -794,6 +817,9 @@ run_dispatch_loop() {
 
     # Save state
     save_state "$state_file"
+
+    # Render live status
+    "$PROGRESS_WRITER" status "$state_file" || true
 
     # Wait before next iteration
     active_count=$(get_active_count)
