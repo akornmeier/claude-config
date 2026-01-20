@@ -441,6 +441,70 @@ handle_unblock_strategy() {
   esac
 }
 
+# ─────────────────────────────────────────────────────────────
+# Metrics Aggregation
+# ─────────────────────────────────────────────────────────────
+
+update_metrics() {
+  local state_file="$1"
+  local event="$2"
+  local agent="${3:-}"
+  local duration="${4:-0}"
+  local tmp_file="${state_file}.tmp.$$"
+
+  case "$event" in
+    task_completed)
+      jq --arg agent "$agent" --argjson dur "$duration" '
+        .metrics.tasks_completed += 1 |
+        .metrics.agents_used[$agent].completed = ((.metrics.agents_used[$agent].completed // 0) + 1) |
+        # Update average duration (running average)
+        .metrics.avg_task_duration_seconds = (
+          if .metrics.tasks_completed > 1 then
+            ((.metrics.avg_task_duration_seconds * (.metrics.tasks_completed - 1)) + $dur) / .metrics.tasks_completed
+          else
+            $dur
+          end
+        )
+      ' "$state_file" > "$tmp_file"
+      mv "$tmp_file" "$state_file"
+      ;;
+    task_failed)
+      jq --arg agent "$agent" '
+        .metrics.tasks_failed += 1 |
+        .metrics.agents_used[$agent].failed = ((.metrics.agents_used[$agent].failed // 0) + 1)
+      ' "$state_file" > "$tmp_file"
+      mv "$tmp_file" "$state_file"
+      ;;
+    retry)
+      jq '.metrics.total_retries += 1' "$state_file" > "$tmp_file"
+      mv "$tmp_file" "$state_file"
+      ;;
+  esac
+}
+
+calculate_parallel_utilization() {
+  local state_file="$1"
+  local max_parallel="$2"
+  local tmp_file="${state_file}.tmp.$$"
+
+  # Parallel utilization = avg active agents / max_parallel
+  # Calculated from in_progress counts over iterations
+  local active
+  active=$(jq '.queue.in_progress | length' "$state_file")
+
+  jq --argjson active "$active" --argjson max "$max_parallel" '
+    # Running average of utilization
+    .metrics.parallel_utilization = (
+      if .session.iteration > 0 then
+        ((.metrics.parallel_utilization * (.session.iteration - 1)) + ($active / $max)) / .session.iteration
+      else
+        $active / $max
+      end
+    )
+  ' "$state_file" > "$tmp_file"
+  mv "$tmp_file" "$state_file"
+}
+
 mark_section_needs_rework() {
   local prd_file="$1"
   local state_file="$2"
