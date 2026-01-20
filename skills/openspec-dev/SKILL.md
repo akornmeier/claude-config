@@ -1,5 +1,5 @@
 ---
-name: openspec-parallel-dev
+name: openspec-dev
 description: Adapter for executing OpenSpec change proposals using subagent-driven-development. Parses OpenSpec structure, groups tasks by phase, and creates one PR per phase.
 ---
 
@@ -16,10 +16,39 @@ Converts OpenSpec change proposals into executable plans and delegates implement
 ## Invocation
 
 ```
-/openspec-parallel-dev <change-id>
+/openspec-dev <change-id> [phases]
 ```
 
-Example: `/openspec-parallel-dev add-launch-features`
+**Arguments:**
+- `<change-id>` — Required. The OpenSpec change directory name
+- `[phases]` — Optional. Phase filter using numeric ranges (e.g., `1,3,5-7`)
+
+**Examples:**
+- `/openspec-dev add-launch-features` — Execute all phases
+- `/openspec-dev add-launch-features 2` — Execute phase 2 only
+- `/openspec-dev add-launch-features 1,3-5` — Execute phases 1, 3, 4, and 5
+
+---
+
+## Phase Filtering
+
+When `[phases]` is provided, only matching phases from `tasks.md` are executed.
+
+**Parsing rules:**
+- Single number: `2` → phase 2 only
+- Comma-separated: `1,3,5` → phases 1, 3, and 5
+- Range with dash: `2-4` → phases 2, 3, and 4
+- Mixed: `1,3-5,7` → phases 1, 3, 4, 5, and 7
+- Whitespace ignored, duplicates removed, sorted ascending
+
+**Phase numbering:** Phases are numbered by order in `tasks.md` (first `## Phase ...` = 1, second = 2, etc.)
+
+**Error handling:**
+- Invalid phase number (doesn't exist): Warn and skip, continue with valid phases
+- Phase already complete (all tasks checked): Log "Phase N: No unchecked tasks, skipping"
+- Malformed input (non-numeric, zero, negative): Error with usage example
+
+---
 
 ## Workflow
 
@@ -35,6 +64,11 @@ Read and extract from `openspec/changes/<change-id>/`:
 
 1. **proposal.md** — identify phases/milestones
 2. **tasks.md** — extract tasks, group by phase
+3. **Apply phase filter** (if `[phases]` provided):
+   - Parse phase numbers from argument
+   - Filter to only matching phases
+   - Warn for non-existent phases
+   - Log and skip phases with no unchecked tasks
 
 ```markdown
 # Example tasks.md structure
@@ -47,7 +81,7 @@ Read and extract from `openspec/changes/<change-id>/`:
 - [ ] Add dashboard layout
 ```
 
-Extract unchecked tasks (`- [ ]`) grouped by their phase heading.
+Extract unchecked tasks (`- [ ]`) grouped by their phase heading. When `[phases]` is specified, only process matching phases.
 
 ---
 
@@ -160,12 +194,19 @@ After all phases:
 | Phase | Branch | PR | Status |
 |-------|--------|-----|--------|
 | Phase 1: Core API | feat/change-id-phase-1 | #142 | Ready |
-| Phase 2: UI Components | feat/change-id-phase-2 | #143 | Ready |
+| Phase 2: UI Components | — | — | Skipped (not in filter) |
+| Phase 3: Tests | — | — | Skipped (already complete) |
+| Phase 4: Docs | feat/change-id-phase-4 | #143 | Ready |
 
 ### Next Steps
 - Review and merge PRs in phase order
 - Run again if tasks were added or skipped
 ```
+
+**Status values:**
+- `Ready` — PR created, awaiting review
+- `Skipped (not in filter)` — Phase excluded by `[phases]` argument
+- `Skipped (already complete)` — All tasks in phase already checked
 
 ---
 
