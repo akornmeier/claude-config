@@ -1,5 +1,6 @@
 # Machine/session-specific directories
 .claude/
+!.claude/svao/
 debug/
 file-history/
 ide/
