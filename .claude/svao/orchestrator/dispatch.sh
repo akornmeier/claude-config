@@ -44,6 +44,43 @@ ACTIVE_FILE=""
 RETRIES_FILE=""
 
 # ─────────────────────────────────────────────────────────────
+# Resume Detection
+# ─────────────────────────────────────────────────────────────
+
+detect_interrupted_session() {
+  local state_file="$1"
+
+  # Check if session was running
+  local status
+  status=$(jq -r '.session.status // "unknown"' "$state_file")
+
+  if [[ "$status" == "running" ]]; then
+    return 0  # Was interrupted
+  fi
+
+  return 1  # Clean state
+}
+
+validate_prd_unchanged() {
+  local prd_file="$1"
+  local state_file="$2"
+
+  local expected
+  expected=$(jq -r '.prd_hash' "$state_file")
+  local actual
+  actual="sha256:$(shasum -a 256 "$prd_file" | cut -d' ' -f1)"
+
+  if [[ "$expected" != "$actual" ]]; then
+    log_error "PRD modified since last run!"
+    log_error "Expected: $expected"
+    log_error "Got: $actual"
+    return 1
+  fi
+
+  return 0
+}
+
+# ─────────────────────────────────────────────────────────────
 # State Management
 # ─────────────────────────────────────────────────────────────
 
