@@ -43,6 +43,7 @@ SVAO - Self-Validating Agent Orchestra (Phase 1)
 Usage: svao.sh <command> [options]
 
 Commands:
+  compile <change-id>        Compile OpenSpec to PRD
   run <agent-type> <task>    Run an agent with a task description
   list                       List available agents
   validate <file>            Run validators on a file
@@ -229,6 +230,11 @@ EOF
 
 case "${1:-}" in
   -h|--help) usage ;;
+  compile)
+    [[ $# -lt 2 ]] && log_error "Missing change-id" && exit 1
+    shift
+    "$SCRIPT_DIR/compile.sh" "$@"
+    ;;
   list) cmd_list ;;
   validate)
     [[ $# -lt 2 ]] && log_error "Missing file argument" && exit 1
