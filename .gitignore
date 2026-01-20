@@ -7,28 +7,20 @@ session-env/
 shell-snapshots/
 statsig/
 todos/
+
+# Session/temporary data
 cache/
 paste-cache/
 plans/
 telemetry/
 
-# Plugin local data
-plugins/cache/
-plugins/install-counts-cache.json
-plugins/installed_plugins.json
-plugins/marketplaces/
-
-# Python artifacts
-__pycache__/
-*.pyc
-*.pyo
-
-# macOS
-.DS_Store
-
 # Local logs and tool files
 *.log
 *.tmp
+
+# Python bytecode
+__pycache__/
+*.pyc
 
 # Environment files
 .env
