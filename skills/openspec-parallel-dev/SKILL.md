@@ -1,18 +1,17 @@
 ---
 name: openspec-parallel-dev
-description: Orchestrates parallel development of OpenSpec tasks using subagents. This skill should be used when implementing multiple tasks from an OpenSpec change proposal, enabling parallel execution of non-overlapping features with TDD, code review, and automated PR creation.
+description: Adapter for executing OpenSpec change proposals using subagent-driven-development. Parses OpenSpec structure, groups tasks by phase, and creates one PR per phase.
 ---
 
-# OpenSpec Parallel Development
+# OpenSpec Development Adapter
 
-Orchestrate parallel subagent development for OpenSpec change proposals. Each task gets its own branch, follows TDD, undergoes code review, and produces a PR.
+Converts OpenSpec change proposals into executable plans and delegates implementation to `superpowers:subagent-driven-development`.
 
 ## Prerequisites
 
 - Active OpenSpec change with approved `proposal.md`
-- Populated `tasks.md` with numbered checklist items
+- Populated `tasks.md` with tasks organized by phase
 - Clean git state on main branch
-- All tests passing on main
 
 ## Invocation
 
@@ -22,324 +21,162 @@ Orchestrate parallel subagent development for OpenSpec change proposals. Each ta
 
 Example: `/openspec-parallel-dev add-launch-features`
 
-## Workflow Overview
+## Workflow
 
 ```
-Read tasks.md → Coordinator analyzes → Dispatch parallel batches → Task agents (TDD) → Review agents → PRs
-```
-
----
-
-## Phase 1: Coordinator Agent
-
-Spawn a coordinator subagent to analyze tasks and create an execution plan.
-
-### Coordinator Responsibilities
-
-1. Parse `openspec/changes/<change-id>/tasks.md`
-2. Extract all unchecked tasks (`- [ ]`)
-3. For each task, identify:
-   - Target packages (convex, web, utils, etc.)
-   - Files likely touched (inferred from task + codebase scan)
-   - Dependencies on other tasks
-4. Build dependency graph
-5. Group into parallel batches:
-   - Batch 1: Tasks with no dependencies
-   - Batch 2: Tasks depending only on Batch 1
-   - Within batches, verify no file overlap
-
-### Coordinator Output
-
-```yaml
-execution_plan:
-  batch_1:
-    - task_id: 1
-      description: "Add Pocket import API"
-      packages: [convex, web]
-      branch: feat/pocket-import
-      skills: [superpowers:test-driven-development, feature-dev:feature-dev]
-    - task_id: 2
-      description: "Create browser extension"
-      packages: [apps/extension]
-      branch: feat/browser-extension
-      skills: [superpowers:test-driven-development]
-  batch_2:
-    - task_id: 4
-      description: "Add tagging system"
-      depends_on: [1]
-      packages: [convex, web]
-      branch: feat/tagging
-      skills: [superpowers:test-driven-development, shadcn-ui, frontend-design:frontend-design]
+Parse OpenSpec → Extract phases → Per phase: branch + subagent-driven-dev + PR
 ```
 
 ---
 
-## Phase 2: Task Agent Dispatch
+## Step 1: Parse OpenSpec Structure
 
-For each batch, dispatch task agents in parallel using the Task tool.
+Read and extract from `openspec/changes/<change-id>/`:
 
-### Task Agent Skills (Hardcoded)
+1. **proposal.md** — identify phases/milestones
+2. **tasks.md** — extract tasks, group by phase
 
-| Skill | When Used |
-|-------|-----------|
-| `superpowers:test-driven-development` | Always — core TDD discipline |
-| `superpowers:systematic-debugging` | When tests fail unexpectedly |
-| `shadcn-ui` | When implementing UI components |
-| `frontend-design:frontend-design` | When creating new UI/pages |
-| `feature-dev:feature-dev` | Guided feature development |
-| `feature-dev:code-architect` | When designing component architecture |
+```markdown
+# Example tasks.md structure
+## Phase 1: Core API
+- [ ] Add user authentication endpoint
+- [ ] Create data validation layer
 
-### Task Agent Workflow
+## Phase 2: UI Components
+- [ ] Build login form component
+- [ ] Add dashboard layout
+```
 
-Each task agent executes this sequence:
+Extract unchecked tasks (`- [ ]`) grouped by their phase heading.
 
-#### Step 1: Setup
+---
+
+## Step 2: Execute Each Phase
+
+For each phase with unchecked tasks:
+
+### 2a. Create Phase Branch
 
 ```bash
 git checkout main && git pull
-git checkout -b feat/<task-slug>
+git checkout -b feat/<change-id>-phase-N
 ```
 
-Read relevant spec from `openspec/specs/<capability>/spec.md` and task description.
+### 2b. Prepare Plan for Subagent-Driven-Development
 
-#### Step 2: Implementation (TDD)
+Convert phase tasks into a plan format:
 
-Invoke `superpowers:test-driven-development`:
+```markdown
+# Phase N: <Phase Name>
 
-1. **RED**: Write failing test for first requirement
-2. **GREEN**: Write minimal code to pass
-3. **REFACTOR**: Clean up, eliminate duplication
-4. **REPEAT**: Until all spec requirements covered
+## Context
+OpenSpec change: <change-id>
+Spec reference: openspec/specs/<capability>/spec.md
 
-Invoke `shadcn-ui`, `frontend-design:frontend-design` as needed for UI work.
-
-#### Step 3: Verification
-
-Run all checks — all must pass:
-
-```bash
-pnpm turbo run test --filter=<affected-packages>
-pnpm turbo run lint
-pnpm turbo run typecheck
-pnpm format  # if available
+## Tasks
+1. <Task description from tasks.md>
+2. <Task description from tasks.md>
+...
 ```
 
-If verification fails:
-- Invoke `superpowers:systematic-debugging`
-- Fix issues, re-run verification
-- Max 2 retry attempts before marking as blocked
+### 2c. Invoke Subagent-Driven-Development
 
-#### Step 4: Handoff to Reviewer
+Follow the `superpowers:subagent-driven-development` workflow:
+- Dispatch implementer subagent per task (sequential)
+- Two-stage review: spec compliance → code quality
+- Use TDD discipline throughout
 
-```bash
-git add -A && git commit -m "feat(<scope>): <description>"
-git push -u origin feat/<task-slug>
-```
+The subagent-driven-development skill handles:
+- Implementer prompts and self-review
+- Spec compliance review
+- Code quality review
+- Retry loops for issues
 
-Signal: "Ready for review" with branch name, changed files, spec reference.
+### 2d. Create PR for Phase
 
----
-
-## Phase 3: Review Agent
-
-Spawn a dedicated review agent for each completed task.
-
-### Review Agent Skills (Hardcoded)
-
-| Skill | Purpose |
-|-------|---------|
-| `pr-review-toolkit:code-reviewer` | Code quality, spec compliance |
-| `chrome-debug` | Visual verification, environment setup |
-
-### Review Agent Workflow
-
-#### Step 1: Context Gathering
-
-```bash
-git checkout feat/<task-slug>
-git diff main..HEAD
-```
-
-Read relevant spec and original task description.
-
-#### Step 2: Static Review
-
-Invoke `pr-review-toolkit:code-reviewer`:
-
-- Spec compliance — all requirements addressed?
-- Test coverage — scenarios from spec have tests?
-- Code quality — no duplication, clear naming
-- Security — no vulnerabilities, proper validation
-- Style — matches project conventions
-
-#### Step 3: Visual Review (if UI changes)
-
-Invoke `chrome-debug`:
-
-- Start dev server if needed (configure environment)
-- Navigate to affected routes
-- Take screenshots of key states
-- Verify renders correctly, no visual regressions
-- Check responsive behavior, dark mode if applicable
-
-#### Step 4: Feedback Report
-
-Output structured feedback:
-
-- **CRITICAL**: Must fix before merge (blocks approval)
-- **IMPORTANT**: Should fix, but not blocking
-- **SUGGESTION**: Nice-to-have improvements
-
-Verdict: `APPROVED` or `CHANGES_REQUESTED`
-
-### Review Feedback Loop
-
-```
-Review Agent: CHANGES_REQUESTED (N critical issues)
-     ↓
-Task Agent resumed: Reads feedback, fixes issues
-     ↓
-Task Agent: Re-runs verification, commits, signals ready
-     ↓
-Review Agent (pass 2): Re-reviews changed areas
-     ↓
-If APPROVED → Create PR
-If still CRITICAL issues → Escalate to NEEDS_INTERVENTION
-```
-
-**Max 2 review passes** — after that, escalate.
-
----
-
-## Phase 4: PR Creation
-
-For approved tasks:
+When all phase tasks complete:
 
 ```bash
 gh pr create \
-  --title "feat(<scope>): <task-description>" \
+  --title "feat(<change-id>): Phase N - <phase name>" \
   --body "## Summary
-- <bullet points of changes>
+<bullet points of changes>
 
-## Spec Reference
-openspec/specs/<capability>/spec.md
+## OpenSpec Reference
+- Change: openspec/changes/<change-id>/proposal.md
+- Tasks: Phase N from tasks.md
 
 ## Test Coverage
-- <list of test files added/modified>
-
-## Review Notes
-<any notes from review agent>"
+<list of test files added/modified>"
 ```
 
-For tasks needing intervention:
+---
+
+## Step 3: Sync Progress to Source tasks.md
+
+**Critical:** Keep `openspec/changes/<change-id>/tasks.md` updated as the source of truth.
+
+### After Each Task Completes
+
+When a task passes both reviews in subagent-driven-development:
+
+1. Update the source file `openspec/changes/<change-id>/tasks.md`
+2. Change `- [ ]` to `- [x]` for the completed task
+3. Commit the update to the phase branch
 
 ```bash
-gh pr create --draft \
-  --title "[WIP] feat(<scope>): <task-description>" \
-  --body "## Summary
-<changes made>
-
-## Requires Manual Attention
-<unresolved critical issues>
-
-## Review History
-<feedback from review passes>"
+# Example: mark task complete in source file
+# In openspec/changes/add-launch-features/tasks.md:
+# - [ ] Add user authentication endpoint  →  - [x] Add user authentication endpoint
+git add openspec/changes/<change-id>/tasks.md
+git commit -m "chore(openspec): mark task complete - <task description>"
 ```
+
+### After Phase PR Created
+
+Add PR reference to completed tasks:
+
+```markdown
+## Phase 1: Core API
+- [x] Add user authentication endpoint (PR #142)
+- [x] Create data validation layer (PR #142)
+```
+
+### Why This Matters
+
+- **Resumability:** If execution stops mid-phase, progress isn't lost
+- **Visibility:** Anyone can check `tasks.md` to see current status
+- **Idempotency:** Re-running the skill skips already-completed tasks (`- [x]`)
 
 ---
 
-## Phase 5: Completion
+## Step 4: Final Report
 
-After all batches complete:
-
-### Collect Results
-
-Gather status from all task agents:
-- `COMPLETED` — PR created and ready
-- `NEEDS_INTERVENTION` — Draft PR with issues
-- `BLOCKED` — Failed after retries
-
-### Update tasks.md
+After all phases:
 
 ```markdown
-- [x] 1. Completed task (PR #142)
-- [x] 2. Another completed task (PR #143)
-- [ ] 3. Task needing intervention (Draft PR #144)
-- [ ] 4. Blocked task
-```
+## OpenSpec Development Complete: <change-id>
 
-Commit update to main.
-
-### Final Report
-
-```markdown
-## OpenSpec Parallel Dev Complete: <change-id>
-
-### Completed (<N>/<total> tasks)
-| Task | Branch | PR |
-|------|--------|-----|
-| 1. Description | feat/branch | #142 |
-
-### Needs Intervention (<N> tasks)
-| Task | Issue | Draft PR |
-|------|-------|----------|
-| 3. Description | <issue summary> | #144 (draft) |
-
-### Blocked (<N> tasks)
-| Task | Failure Reason |
-|------|----------------|
-| 4. Description | <failure summary> |
+| Phase | Branch | PR | Status |
+|-------|--------|-----|--------|
+| Phase 1: Core API | feat/change-id-phase-1 | #142 | Ready |
+| Phase 2: UI Components | feat/change-id-phase-2 | #143 | Ready |
 
 ### Next Steps
-- Review draft PRs and resolve flagged issues
-- Merge completed PRs in dependency order
-- Run `/openspec-parallel-dev <change-id>` again for remaining tasks
+- Review and merge PRs in phase order
+- Run again if tasks were added or skipped
 ```
 
 ---
 
-## Failure Handling
+## Integration
 
-| Failure Type | Response | Max Retries |
-|--------------|----------|-------------|
-| Tests fail | Invoke `systematic-debugging`, fix, retry | 2 |
-| Lint/typecheck fail | Auto-fix if possible, else debug | 2 |
-| Build fails | Analyze error, fix dependencies | 2 |
-| Task agent stuck | Spawn fresh agent with error context | 2 |
-| Review critical issues | Fix and re-review | 2 |
-| All retries exhausted | Escalate to NEEDS_INTERVENTION | — |
+This skill is a thin adapter that delegates to:
 
----
+| Skill | Purpose |
+|-------|---------|
+| `superpowers:subagent-driven-development` | Task execution, reviews, retry loops |
+| `superpowers:test-driven-development` | TDD discipline (used by implementers) |
+| `superpowers:finishing-a-development-branch` | Final cleanup if needed |
 
-## Implementation Notes
-
-### Dispatching Parallel Agents
-
-Use the Task tool with multiple invocations in a single message to run agents in parallel:
-
-```
-[Task tool: task 1 agent]
-[Task tool: task 2 agent]  <- Same message = parallel execution
-[Task tool: task 3 agent]
-```
-
-### Agent Prompts
-
-Each task agent prompt should include:
-
-1. Task description from tasks.md
-2. Relevant spec section
-3. Branch name to create
-4. Skills to invoke (from coordinator's analysis)
-5. Verification commands for the project
-6. Instructions to signal "Ready for review" when done
-
-### Resuming Agents
-
-If a task agent needs fixes after review, resume it using the agent ID:
-
-```
-[Task tool with resume: <agent-id>]
-```
-
-Provide the review feedback in the prompt.
+**Do not duplicate** the implementation/review logic from subagent-driven-development.
