@@ -44,9 +44,28 @@
     "checkpoints": {
       "type": "object",
       "properties": {
-        "last_queue_planning": { "type": "string", "format": "date-time" },
-        "last_iteration_at_checkpoint": { "type": "integer" },
-        "history": { "type": "array" }
+        "last_queue_planning": { "type": ["string", "null"], "format": "date-time" },
+        "last_iteration_at_checkpoint": { "type": "integer", "default": 0 },
+        "reviewed_sections": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "default": []
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string" },
+              "timestamp": { "type": "string", "format": "date-time" },
+              "commands": { "type": "array" },
+              "result": { "type": "string" },
+              "iteration": { "type": "integer" }
+            },
+            "required": ["type", "timestamp"]
+          },
+          "default": []
+        }
       }
     },
     "metrics": {

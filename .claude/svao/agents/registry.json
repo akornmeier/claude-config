@@ -35,7 +35,16 @@
       "BLOCKED:CLARIFICATION",
       "BLOCKED:DEPENDENCY",
       "DISCOVERED_DEPENDENCY"
-    ]
+    ],
+    "checkpoints": {
+      "enabled": true,
+      "interval": 5,
+      "types": {
+        "queue-planning": { "enabled": true, "trigger": "interval" },
+        "blocker-resolution": { "enabled": true, "trigger": "event" },
+        "completion-review": { "enabled": true, "trigger": "event" }
+      }
+    }
   },
   "validators": {
     "tdd-guard": ".claude/svao/validators/tdd-guard.sh",
