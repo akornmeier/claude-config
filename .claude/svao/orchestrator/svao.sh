@@ -46,6 +46,7 @@ Commands:
   compile <change-id>        Compile OpenSpec to PRD
   dispatch <change-id>       Run parallel dispatch for a compiled PRD
   status <change-id>         Show execution status for a change
+  checkpoint <type> <id>     Manually invoke a checkpoint
   run <agent-type> <task>    Run single agent with a task description
   list                       List available agents
   validate <file>            Run validators on a file
@@ -357,6 +358,37 @@ case "${1:-}" in
   status)
     [[ $# -lt 2 ]] && log_error "Missing change-id" && exit 1
     cmd_status "$2"
+    ;;
+  checkpoint)
+    shift
+    checkpoint_type="${1:-}"
+    change_id="${2:-}"
+
+    if [[ -z "$checkpoint_type" || -z "$change_id" ]]; then
+        echo "Usage: svao.sh checkpoint <type> <change-id> [options]"
+        echo ""
+        echo "Types: queue-planning, completion-review, blocker-resolution"
+        echo ""
+        echo "Options:"
+        echo "  --dry-run         Show prompt without invoking Claude"
+        echo "  --section <n>     Section number (completion-review)"
+        echo "  --task <id>       Task ID (blocker-resolution)"
+        exit 1
+    fi
+
+    shift 2
+    # Use the checkpoint invoker
+    invoker="$HOME/.claude/svao/orchestrator/checkpoints/invoke.sh"
+    if [[ ! -f "$invoker" ]]; then
+        invoker="$SCRIPT_DIR/checkpoints/invoke.sh"
+    fi
+
+    if [[ ! -f "$invoker" ]]; then
+        echo "Error: Checkpoint invoker not found" >&2
+        exit 1
+    fi
+
+    exec "$invoker" "$checkpoint_type" "$change_id" "$@"
     ;;
   list) cmd_list ;;
   validate)
