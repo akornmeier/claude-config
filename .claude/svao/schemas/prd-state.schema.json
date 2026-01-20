@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://svao.local/prd-state.schema.json",
+  "title": "SVAO PRD Execution State",
+  "description": "Mutable execution state managed by orchestrator",
+  "type": "object",
+  "required": ["version", "change_id", "prd_file", "prd_hash", "session", "tasks", "queue", "summary"],
+  "properties": {
+    "version": { "type": "string" },
+    "change_id": { "type": "string" },
+    "prd_file": { "type": "string" },
+    "prd_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "session": {
+      "type": "object",
+      "required": ["id", "started_at", "status"],
+      "properties": {
+        "id": { "type": "string" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "iteration": { "type": "integer", "minimum": 0 },
+        "status": {
+          "type": "string",
+          "enum": ["running", "paused", "completed", "failed"]
+        }
+      }
+    },
+    "tasks": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/taskState" }
+    },
+    "queue": {
+      "type": "object",
+      "properties": {
+        "ready": { "type": "array", "items": { "type": "string" } },
+        "in_progress": { "type": "array", "items": { "type": "string" } },
+        "blocked": { "type": "array", "items": { "type": "string" } },
+        "completed": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "discovered_dependencies": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/discoveredDep" }
+    },
+    "checkpoints": {
+      "type": "object",
+      "properties": {
+        "last_queue_planning": { "type": "string", "format": "date-time" },
+        "last_iteration_at_checkpoint": { "type": "integer" },
+        "history": { "type": "array" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "tasks_completed": { "type": "integer" },
+        "tasks_failed": { "type": "integer" },
+        "total_retries": { "type": "integer" },
+        "agents_used": { "type": "object" },
+        "avg_task_duration_seconds": { "type": "number" },
+        "parallel_utilization": { "type": "number" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "total_tasks": { "type": "integer" },
+        "completed": { "type": "integer" },
+        "in_progress": { "type": "integer" },
+        "blocked": { "type": "integer" },
+        "ready": { "type": "integer" },
+        "pending": { "type": "integer" },
+        "progress_percent": { "type": "number" }
+      }
+    }
+  },
+  "$defs": {
+    "taskState": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "completed", "blocked", "failed"]
+        },
+        "assigned_to": { "type": "string" },
+        "assigned_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "duration_seconds": { "type": "integer" },
+        "commits": { "type": "array", "items": { "type": "string" } },
+        "retries": { "type": "integer" },
+        "retry_history": { "type": "array" },
+        "isolation": { "type": "string", "enum": ["task", "worktree"] },
+        "pid": { "type": "integer" },
+        "status_file": { "type": "string" },
+        "blocked_by": { "type": "array", "items": { "type": "string" } },
+        "blocked_reason": { "type": "string" }
+      }
+    },
+    "discoveredDep": {
+      "type": "object",
+      "required": ["from", "to", "status"],
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "confidence": { "type": "integer" },
+        "reason": { "type": "string" },
+        "discovered_at": { "type": "string", "format": "date-time" },
+        "discovered_by": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending_review", "applied", "rejected"]
+        }
+      }
+    }
+  }
+}
