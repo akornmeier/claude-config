@@ -505,6 +505,43 @@ calculate_parallel_utilization() {
   mv "$tmp_file" "$state_file"
 }
 
+persist_global_metrics() {
+  local state_file="$1"
+  local metrics_file="$SVAO_ROOT/agents/metrics.json"
+
+  if [[ ! -f "$metrics_file" ]]; then
+    log_warn "Global metrics file not found: $metrics_file"
+    return 0
+  fi
+
+  local tmp_file="${metrics_file}.tmp.$$"
+  local session_metrics
+  session_metrics=$(jq '.metrics' "$state_file")
+
+  jq --argjson session "$session_metrics" \
+     --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+    .updated_at = $updated |
+    .global.total_orchestration_sessions += 1 |
+    .global.total_tasks_completed += ($session.tasks_completed // 0) |
+    # Running average of parallel utilization
+    .global.avg_parallel_utilization = (
+      if .global.total_orchestration_sessions > 1 then
+        ((.global.avg_parallel_utilization * (.global.total_orchestration_sessions - 1)) + ($session.parallel_utilization // 0)) / .global.total_orchestration_sessions
+      else
+        ($session.parallel_utilization // 0)
+      end
+    ) |
+    # Update per-agent metrics
+    reduce ($session.agents_used // {} | to_entries[]) as $agent (.;
+      .agents[$agent.key].total_completed = ((.agents[$agent.key].total_completed // 0) + ($agent.value.completed // 0)) |
+      .agents[$agent.key].total_failed = ((.agents[$agent.key].total_failed // 0) + ($agent.value.failed // 0))
+    )
+  ' "$metrics_file" > "$tmp_file"
+
+  mv "$tmp_file" "$metrics_file"
+  log_success "Updated global metrics: $metrics_file"
+}
+
 mark_section_needs_rework() {
   local prd_file="$1"
   local state_file="$2"
@@ -918,6 +955,14 @@ run_dispatch_loop() {
   # Final summary
   log_info "Dispatch loop complete"
   jq '.summary' "$state_file"
+
+  # Persist metrics to global file
+  persist_global_metrics "$state_file"
+
+  # Mark session complete
+  local tmp_file="${state_file}.tmp.$$"
+  jq '.session.status = "completed"' "$state_file" > "$tmp_file"
+  mv "$tmp_file" "$state_file"
 }
 
 # Entry point
