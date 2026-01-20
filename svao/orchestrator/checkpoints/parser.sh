@@ -151,8 +151,8 @@ parse_checkpoint_output() {
         line="${line#"${line%%[![:space:]]*}"}"
         line="${line%"${line##*[![:space:]]}"}"
 
-        # Skip empty lines and markdown code blocks
-        [[ -z "$line" || "$line" == '```' || "$line" =~ ^\`\`\` ]] && continue
+        # Skip empty lines, comments, and markdown code blocks
+        [[ -z "$line" || "$line" =~ ^# || "$line" == '```' || "$line" =~ ^\`\`\` ]] && continue
 
         if validate_command "$line"; then
             # Extract command and args
