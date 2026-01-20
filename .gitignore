@@ -1,3 +1,4 @@
+# Machine/session-specific directories
 .claude/
 debug/
 file-history/
@@ -6,7 +7,24 @@ session-env/
 shell-snapshots/
 statsig/
 todos/
-plugins/cache/*
+cache/
+paste-cache/
+plans/
+telemetry/
+
+# Plugin local data
+plugins/cache/
+plugins/install-counts-cache.json
+plugins/installed_plugins.json
+plugins/marketplaces/
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
 
 # Local logs and tool files
 *.log
