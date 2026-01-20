@@ -68,6 +68,11 @@
         }
       }
     },
+    "section_prs": {
+      "type": "object",
+      "description": "PRs created for each completed section",
+      "additionalProperties": { "type": "string" }
+    },
     "metrics": {
       "type": "object",
       "properties": {
