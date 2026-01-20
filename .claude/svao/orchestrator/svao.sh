@@ -1,6 +1,6 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────
-# SVAO - Self-Validating Agent Orchestra (Phase 1: Single Agent)
+# SVAO - Self-Validating Agent Orchestra (Phase 2: Parallel Dispatch)
 # ─────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -38,24 +38,32 @@ log_agent() { echo -e "[$(date +%H:%M:%S)] ${BLUE}🤖${NC} $*"; }
 # ─────────────────────────────────────────────────────────────
 usage() {
   cat <<EOF
-SVAO - Self-Validating Agent Orchestra (Phase 1)
+SVAO - Self-Validating Agent Orchestra (Phase 2)
 
 Usage: svao.sh <command> [options]
 
 Commands:
   compile <change-id>        Compile OpenSpec to PRD
-  run <agent-type> <task>    Run an agent with a task description
+  dispatch <change-id>       Run parallel dispatch for a compiled PRD
+  status <change-id>         Show execution status for a change
+  run <agent-type> <task>    Run single agent with a task description
   list                       List available agents
   validate <file>            Run validators on a file
   test-hooks                 Test that hooks are working
+
+Dispatch Options:
+  --max-parallel N           Maximum concurrent agents (default: 3)
+  --max-iterations N         Maximum iterations (default: 50)
 
 Options:
   -h, --help                 Show this help message
 
 Examples:
-  svao.sh list
-  svao.sh run frontend-coder "Create a Button component with hover states"
-  svao.sh validate src/components/Button.ts
+  svao.sh compile my-feature
+  svao.sh dispatch my-feature
+  svao.sh dispatch my-feature --max-parallel 5
+  svao.sh status my-feature
+  svao.sh run frontend-coder "Create a Button component"
 EOF
   exit 0
 }
@@ -98,6 +106,61 @@ cmd_validate() {
     log_error "TDD guard failed"
     return 1
   fi
+}
+
+cmd_dispatch() {
+  local change_id="$1"
+  shift
+
+  # Parse additional options
+  local max_parallel=3
+  local max_iterations=50
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --max-parallel) max_parallel="$2"; shift 2 ;;
+      --max-iterations) max_iterations="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  # Find change directory
+  local change_dir=""
+  for candidate in "openspec/changes/$change_id" ".claude/changes/$change_id"; do
+    if [[ -d "$candidate" ]]; then
+      change_dir="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$change_dir" ]]; then
+    log_error "Change not found: $change_id"
+    exit 1
+  fi
+
+  local prd_file="$change_dir/prd.json"
+  local state_file="$change_dir/prd-state.json"
+
+  if [[ ! -f "$prd_file" ]]; then
+    log_error "PRD not found: $prd_file"
+    log_info "Run: svao.sh compile $change_id"
+    exit 1
+  fi
+
+  if [[ ! -f "$state_file" ]]; then
+    log_error "State file not found: $state_file"
+    log_info "Run: svao.sh compile $change_id"
+    exit 1
+  fi
+
+  log_info "Running SVAO for: $change_id"
+  log_info "PRD: $prd_file"
+  log_info "Max parallel: $max_parallel"
+
+  export MAX_PARALLEL="$max_parallel"
+  export MAX_ITERATIONS="$max_iterations"
+
+  "$SCRIPT_DIR/dispatch.sh" "$prd_file" "$state_file"
 }
 
 cmd_run() {
@@ -234,6 +297,11 @@ case "${1:-}" in
     [[ $# -lt 2 ]] && log_error "Missing change-id" && exit 1
     shift
     "$SCRIPT_DIR/compile.sh" "$@"
+    ;;
+  dispatch)
+    [[ $# -lt 2 ]] && log_error "Missing change-id" && exit 1
+    shift
+    cmd_dispatch "$@"
     ;;
   list) cmd_list ;;
   validate)
