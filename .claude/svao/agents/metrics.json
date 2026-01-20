@@ -1,0 +1,9 @@
+{
+  "updated_at": null,
+  "agents": {},
+  "global": {
+    "total_orchestration_sessions": 0,
+    "total_tasks_completed": 0,
+    "avg_parallel_utilization": 0
+  }
+}

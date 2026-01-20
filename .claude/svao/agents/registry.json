@@ -1,0 +1,46 @@
+{
+  "$schema": "../schemas/registry.schema.json",
+  "version": "1.0.0",
+  "agents": {
+    "frontend-coder": {
+      "definition": ".claude/svao/agents/frontend-coder.md",
+      "enabled": true,
+      "isolation_default": "task",
+      "isolation_threshold": {
+        "complexity": "high",
+        "upgrade_to": "worktree"
+      }
+    },
+    "api-builder": {
+      "definition": ".claude/svao/agents/api-builder.md",
+      "enabled": true,
+      "isolation_default": "task"
+    },
+    "test-writer": {
+      "definition": ".claude/svao/agents/test-writer.md",
+      "enabled": true,
+      "isolation_default": "task"
+    }
+  },
+  "orchestrator": {
+    "max_parallel_agents": 3,
+    "checkpoint_interval": 5,
+    "metrics_file": ".claude/svao/agents/metrics.json",
+    "progress_file": "progress.md",
+    "default_stop_signals": [
+      "TASK_COMPLETE",
+      "SECTION_COMPLETE",
+      "ALL_TASKS_COMPLETE",
+      "BLOCKED:TESTS",
+      "BLOCKED:CLARIFICATION",
+      "BLOCKED:DEPENDENCY",
+      "DISCOVERED_DEPENDENCY"
+    ]
+  },
+  "validators": {
+    "tdd-guard": ".claude/svao/validators/tdd-guard.sh",
+    "test-suite": ".claude/svao/validators/test-suite.sh",
+    "coverage-check": ".claude/svao/validators/coverage-check.sh",
+    "spec-format": ".claude/svao/validators/spec-format.py"
+  }
+}
