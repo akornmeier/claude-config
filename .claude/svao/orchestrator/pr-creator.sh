@@ -77,6 +77,8 @@ create_section_pr() {
     commits="$commits $task_commits"
   done
 
+  commits=$(echo "$commits" | xargs)  # Trim whitespace
+
   if [[ -z "$commits" ]]; then
     log_warn "No commits found for section $section_num - creating PR anyway"
   fi
@@ -110,9 +112,15 @@ EOF
   # Check if branch exists, create if not
   if ! git rev-parse --verify "$branch_name" &> /dev/null; then
     log_info "Creating branch: $branch_name"
-    git checkout -b "$branch_name"
+    if ! git checkout -b "$branch_name"; then
+      log_error "Failed to create branch: $branch_name"
+      return 1
+    fi
   else
-    git checkout "$branch_name"
+    if ! git checkout "$branch_name"; then
+      log_error "Failed to checkout branch: $branch_name"
+      return 1
+    fi
   fi
 
   # Push branch
