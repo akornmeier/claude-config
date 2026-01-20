@@ -435,7 +435,28 @@ case "${1:-}" in
       exit 1
     fi
 
-    "$SCRIPT_DIR/pr-creator.sh" create "$change_dir/prd.json" "$change_dir/prd-state.json" "$section_num"
+    # Check pr-creator exists
+    if [[ ! -f "$SCRIPT_DIR/pr-creator.sh" ]]; then
+      log_error "PR creator not found: $SCRIPT_DIR/pr-creator.sh"
+      exit 1
+    fi
+
+    local prd_file="$change_dir/prd.json"
+    local state_file="$change_dir/prd-state.json"
+
+    if [[ ! -f "$prd_file" ]]; then
+      log_error "PRD not found: $prd_file"
+      log_info "Run: svao.sh compile $change_id"
+      exit 1
+    fi
+
+    if [[ ! -f "$state_file" ]]; then
+      log_error "State file not found: $state_file"
+      log_info "Run: svao.sh compile $change_id"
+      exit 1
+    fi
+
+    "$SCRIPT_DIR/pr-creator.sh" create "$prd_file" "$state_file" "$section_num"
     ;;
   test-hooks) cmd_test_hooks ;;
   *)

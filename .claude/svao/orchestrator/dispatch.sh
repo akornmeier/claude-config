@@ -397,14 +397,16 @@ execute_checkpoint_command() {
       # Create PR for approved section
       if [[ -f "$PR_CREATOR" ]]; then
         log_info "Creating PR for section $args..."
-        local pr_url
-        pr_url=$("$PR_CREATOR" create "$prd_file" "$state_file" "$args" 2>&1) || {
-          log_warn "PR creation failed: $pr_url"
-        }
-
-        # Log to progress
+        local pr_url=""
         local progress_file="$(dirname "$state_file")/progress.md"
-        "$PROGRESS_WRITER" log "$progress_file" section_complete "$args" "PR: $pr_url" || true
+        if pr_url=$("$PR_CREATOR" create "$prd_file" "$state_file" "$args" 2>&1); then
+          # Log to progress only on success
+          "$PROGRESS_WRITER" log "$progress_file" section_complete "$args" "PR: $pr_url" || true
+        else
+          log_warn "PR creation failed: $pr_url"
+          # Log to progress without PR URL
+          "$PROGRESS_WRITER" log "$progress_file" section_complete "$args" "PR creation failed" || true
+        fi
       fi
       ;;
     NEEDS_WORK)
