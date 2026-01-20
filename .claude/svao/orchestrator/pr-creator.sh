@@ -48,6 +48,11 @@ create_section_pr() {
     .sections[] | select(.number == ($n | tonumber)) | .name
   ' "$prd_file")
 
+  if [[ -z "$section_name" || "$section_name" == "null" ]]; then
+    log_error "Section $section_num not found in PRD"
+    return 1
+  fi
+
   local change_id
   change_id=$(jq -r '.change_id' "$prd_file")
 
@@ -56,6 +61,11 @@ create_section_pr() {
   tasks=$(jq -r --arg n "$section_num" '
     .sections[] | select(.number == ($n | tonumber)) | .tasks[].id
   ' "$prd_file" | tr '\n' ', ' | sed 's/,$//')
+
+  if [[ -z "$tasks" ]]; then
+    log_error "Section $section_num has no tasks"
+    return 1
+  fi
 
   # Get commits from tasks
   local commits=""
@@ -66,6 +76,10 @@ create_section_pr() {
     task_commits=$(jq -r --arg id "$task_id" '.tasks[$id].commits // [] | .[]' "$state_file" 2>/dev/null || echo "")
     commits="$commits $task_commits"
   done
+
+  if [[ -z "$commits" ]]; then
+    log_warn "No commits found for section $section_num - creating PR anyway"
+  fi
 
   # Build PR title and body
   local branch_name="svao/${change_id}/section-${section_num}"
@@ -103,7 +117,11 @@ EOF
 
   # Push branch
   log_info "Pushing branch to remote..."
-  git push -u origin "$branch_name"
+  if ! git push -u origin "$branch_name"; then
+    log_error "Failed to push branch to remote"
+    git checkout - 2>/dev/null || true
+    return 1
+  fi
 
   # Create PR
   log_info "Creating pull request..."
