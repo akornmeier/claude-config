@@ -163,6 +163,57 @@ cmd_dispatch() {
   "$SCRIPT_DIR/dispatch.sh" "$prd_file" "$state_file"
 }
 
+cmd_status() {
+  local change_id="$1"
+
+  local change_dir=""
+  for candidate in "openspec/changes/$change_id" ".claude/changes/$change_id"; do
+    if [[ -d "$candidate" ]]; then
+      change_dir="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$change_dir" ]]; then
+    log_error "Change not found: $change_id"
+    exit 1
+  fi
+
+  local state_file="$change_dir/prd-state.json"
+
+  if [[ ! -f "$state_file" ]]; then
+    log_error "No state file found. Run compile first."
+    exit 1
+  fi
+
+  log_info "Status: $change_id"
+  echo ""
+
+  # Summary
+  jq -r '
+    "Progress: \(.summary.completed)/\(.summary.total_tasks) (\(.summary.progress_percent)%)\n" +
+    "Ready: \(.summary.ready) | In Progress: \(.summary.in_progress) | Blocked: \(.summary.blocked)"
+  ' "$state_file"
+
+  echo ""
+
+  # Queue details
+  log_info "Ready tasks:"
+  jq -r '.queue.ready[] | "  - \(.)"' "$state_file" 2>/dev/null || echo "  (none)"
+
+  if [[ $(jq '.queue.in_progress | length' "$state_file") -gt 0 ]]; then
+    echo ""
+    log_info "In progress:"
+    jq -r '.queue.in_progress[] | "  - \(.)"' "$state_file"
+  fi
+
+  if [[ $(jq '.queue.blocked | length' "$state_file") -gt 0 ]]; then
+    echo ""
+    log_warn "Blocked:"
+    jq -r '.queue.blocked[] | "  - \(.)"' "$state_file"
+  fi
+}
+
 cmd_run() {
   local agent_type="$1"
   local task="$2"
@@ -302,6 +353,10 @@ case "${1:-}" in
     [[ $# -lt 2 ]] && log_error "Missing change-id" && exit 1
     shift
     cmd_dispatch "$@"
+    ;;
+  status)
+    [[ $# -lt 2 ]] && log_error "Missing change-id" && exit 1
+    cmd_status "$2"
     ;;
   list) cmd_list ;;
   validate)
