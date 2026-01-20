@@ -39,6 +39,9 @@ CHECKPOINT_INVOKER="$CHECKPOINT_DIR/invoke.sh"
 # Progress writer
 PROGRESS_WRITER="$SCRIPT_DIR/progress-writer.sh"
 
+# PR creator
+PR_CREATOR="$SCRIPT_DIR/pr-creator.sh"
+
 # State (use temp files since bash associative arrays don't export well)
 ITERATION=0
 SESSION_ID=""
@@ -390,6 +393,19 @@ execute_checkpoint_command() {
          '.checkpoints.reviewed_sections = ((.checkpoints.reviewed_sections // []) + [($section | tonumber)] | unique)' \
          "$state_file" > "$tmp_file"
       mv "$tmp_file" "$state_file"
+
+      # Create PR for approved section
+      if [[ -f "$PR_CREATOR" ]]; then
+        log_info "Creating PR for section $args..."
+        local pr_url
+        pr_url=$("$PR_CREATOR" create "$prd_file" "$state_file" "$args" 2>&1) || {
+          log_warn "PR creation failed: $pr_url"
+        }
+
+        # Log to progress
+        local progress_file="$(dirname "$state_file")/progress.md"
+        "$PROGRESS_WRITER" log "$progress_file" section_complete "$args" "PR: $pr_url" || true
+      fi
       ;;
     NEEDS_WORK)
       # Format: section-number:reason

@@ -47,6 +47,7 @@ Commands:
   dispatch <change-id>       Run parallel dispatch for a compiled PRD
   status <change-id>         Show execution status for a change
   checkpoint <type> <id>     Manually invoke a checkpoint
+  pr <change-id> <section>   Create PR for a completed section
   run <agent-type> <task>    Run single agent with a task description
   list                       List available agents
   validate <file>            Run validators on a file
@@ -414,6 +415,27 @@ case "${1:-}" in
   run)
     [[ $# -lt 3 ]] && log_error "Missing agent type or task" && exit 1
     cmd_run "$2" "$3"
+    ;;
+  pr)
+    [[ $# -lt 3 ]] && log_error "Usage: svao.sh pr <change-id> <section-num>" && exit 1
+    change_id="$2"
+    section_num="$3"
+
+    # Find change directory
+    change_dir=""
+    for candidate in "openspec/changes/$change_id" ".claude/changes/$change_id"; do
+      if [[ -d "$candidate" ]]; then
+        change_dir="$candidate"
+        break
+      fi
+    done
+
+    if [[ -z "$change_dir" ]]; then
+      log_error "Change not found: $change_id"
+      exit 1
+    fi
+
+    "$SCRIPT_DIR/pr-creator.sh" create "$change_dir/prd.json" "$change_dir/prd-state.json" "$section_num"
     ;;
   test-hooks) cmd_test_hooks ;;
   *)
