@@ -1,3 +1,4 @@
+# Machine/session-specific directories
 .claude/
 debug/
 file-history/
@@ -6,10 +7,6 @@ session-env/
 shell-snapshots/
 statsig/
 todos/
-
-# Plugin system
-plugins/cache/
-plugins/install-counts-cache.json
 
 # Session/temporary data
 cache/
