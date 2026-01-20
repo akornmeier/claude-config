@@ -705,6 +705,9 @@ check_agent_status() {
       local progress_file="$(dirname "$state_file")/progress.md"
       local duration=$(jq -r '.duration_seconds // 0' "$status_file")
       "$PROGRESS_WRITER" log "$progress_file" task_completed "$task_id" "$duration" || true
+      local agent
+      agent=$(jq -r --arg id "$task_id" '.tasks[$id].assigned_to // "unknown"' "$state_file")
+      update_metrics "$state_file" task_completed "$agent" "$duration"
       return 0
       ;;
     failed)
@@ -754,6 +757,7 @@ handle_failure() {
   local retries=$(get_retries "$task_id")
   ((retries++))
   set_retries "$task_id" "$retries"
+  update_metrics "$state_file" retry
 
   if [[ $retries -lt $MAX_RETRIES ]]; then
     log_warn "Retrying task $task_id (attempt $((retries + 1))/$MAX_RETRIES)"
@@ -762,6 +766,8 @@ handle_failure() {
   else
     log_error "Task $task_id failed after $MAX_RETRIES attempts"
     update_task_status "$state_file" "$task_id" "blocked"
+    local agent=$(get_agent_for_task "$prd_file" "$task_id")
+    update_metrics "$state_file" task_failed "$agent"
   fi
 }
 
@@ -878,6 +884,9 @@ run_dispatch_loop() {
         [[ $active_count -ge $MAX_PARALLEL ]] && break
       done
     fi
+
+    # Update parallel utilization metric
+    calculate_parallel_utilization "$state_file" "$MAX_PARALLEL"
 
     # Save state
     save_state "$state_file"
