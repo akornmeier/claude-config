@@ -599,7 +599,7 @@ svao.sh logs <change-id> --task 2.3
 12. Completion review checkpoint
 13. Blocker resolution checkpoint
 
-### Phase 2d: Polish
+### Phase 2d: Polish ✅
 14. Resume from crash
 15. Progress visualization
 16. Metrics aggregation
