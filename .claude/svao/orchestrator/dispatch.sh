@@ -80,6 +80,59 @@ validate_prd_unchanged() {
   return 0
 }
 
+cleanup_stale_processes() {
+  local state_file="$1"
+  local cleaned=0
+
+  # Get session ID from state
+  local session_id
+  session_id=$(jq -r '.session.id' "$state_file")
+  local status_dir="/tmp/svao/$session_id"
+  local active_file="$status_dir/.active_pids"
+
+  if [[ ! -f "$active_file" ]]; then
+    return 0
+  fi
+
+  log_info "Checking for stale processes..."
+
+  # Read each PID and check if still running
+  while IFS=: read -r pid task_id; do
+    [[ -z "$pid" ]] && continue
+
+    if ! kill -0 "$pid" 2>/dev/null; then
+      log_warn "Stale process found: PID $pid (task $task_id)"
+
+      # Check if task completed
+      local status_file="$status_dir/${task_id}.status.json"
+      if [[ -f "$status_file" ]]; then
+        local task_status
+        task_status=$(jq -r '.status' "$status_file")
+        if [[ "$task_status" == "completed" ]]; then
+          log_info "Task $task_id completed before crash"
+          update_task_status "$state_file" "$task_id" "completed"
+        else
+          log_warn "Task $task_id was interrupted, will be re-dispatched"
+          update_task_status "$state_file" "$task_id" "pending"
+        fi
+      else
+        log_warn "No status for task $task_id, marking pending"
+        update_task_status "$state_file" "$task_id" "pending"
+      fi
+
+      ((cleaned++))
+    fi
+  done < "$active_file"
+
+  # Clear the active PIDs file
+  if [[ $cleaned -gt 0 ]]; then
+    : > "$active_file"
+    log_info "Cleaned $cleaned stale process(es)"
+  fi
+
+  return 0
+}
+
 # ─────────────────────────────────────────────────────────────
 # State Management
 # ─────────────────────────────────────────────────────────────
