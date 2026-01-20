@@ -31,6 +31,11 @@ POLL_INTERVAL="${POLL_INTERVAL:-5}"
 CHECKPOINT_INTERVAL="${CHECKPOINT_INTERVAL:-5}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-50}"
 
+# Checkpoint configuration
+# Handle nested .claude path - checkpoints are in ~/.claude/svao/ not ~/.claude/.claude/svao/
+CHECKPOINT_DIR="$HOME/.claude/svao/orchestrator/checkpoints"
+CHECKPOINT_INVOKER="$CHECKPOINT_DIR/invoke.sh"
+
 # State (use temp files since bash associative arrays don't export well)
 ITERATION=0
 SESSION_ID=""
@@ -128,6 +133,243 @@ rebuild_queue() {
   ' "$state_file" > "$tmp_file"
 
   mv "$tmp_file" "$state_file"
+}
+
+# ─────────────────────────────────────────────────────────────
+# Checkpoint System
+# ─────────────────────────────────────────────────────────────
+
+should_trigger_queue_planning() {
+  local state_file="$1"
+  local last_checkpoint_iteration
+  last_checkpoint_iteration=$(jq -r '.checkpoints.last_iteration_at_checkpoint // 0' "$state_file")
+  local diff=$((ITERATION - last_checkpoint_iteration))
+  [[ $diff -ge $CHECKPOINT_INTERVAL ]]
+}
+
+should_trigger_completion_review() {
+  local prd_file="$1"
+  local state_file="$2"
+  local section_num="$3"
+
+  # Get all tasks in section
+  local section_tasks
+  section_tasks=$(jq -r --arg n "$section_num" '
+    .sections[] | select(.number == ($n | tonumber)) | .tasks[].id
+  ' "$prd_file")
+
+  # Check if all are completed
+  while IFS= read -r task_id; do
+    [[ -z "$task_id" ]] && continue
+    local status
+    status=$(jq -r --arg id "$task_id" '.tasks[$id].status // "pending"' "$state_file")
+    if [[ "$status" != "completed" ]]; then
+      return 1
+    fi
+  done <<< "$section_tasks"
+
+  # Check if already reviewed
+  local reviewed
+  reviewed=$(jq -r --arg n "$section_num" '
+    .checkpoints.reviewed_sections // [] | map(select(. == ($n | tonumber))) | length
+  ' "$state_file")
+  [[ "$reviewed" -eq 0 ]]
+}
+
+run_checkpoint() {
+  local checkpoint_type="$1"
+  local prd_file="$2"
+  local state_file="$3"
+  local extra_args="${4:-}"
+  local change_id
+  change_id=$(jq -r '.change_id' "$prd_file")
+
+  log_info "Running $checkpoint_type checkpoint..."
+
+  # Find the checkpoint invoker - handle nested .claude paths
+  local invoker=""
+  if [[ -f "$CHECKPOINT_DIR/invoke.sh" ]]; then
+    invoker="$CHECKPOINT_DIR/invoke.sh"
+  elif [[ -f "$HOME/.claude/svao/orchestrator/checkpoints/invoke.sh" ]]; then
+    invoker="$HOME/.claude/svao/orchestrator/checkpoints/invoke.sh"
+  fi
+
+  if [[ -z "$invoker" || ! -f "$invoker" ]]; then
+    log_warn "Checkpoint invoker not found, skipping checkpoint"
+    return 0
+  fi
+
+  local output
+  if ! output=$("$invoker" "$checkpoint_type" "$change_id" $extra_args 2>&1); then
+    log_error "Checkpoint invocation failed: $output"
+    return 1
+  fi
+
+  local valid
+  valid=$(echo "$output" | jq -r '.valid // false')
+
+  if [[ "$valid" != "true" ]]; then
+    log_error "Checkpoint output invalid"
+    return 1
+  fi
+
+  # Process commands
+  echo "$output" | jq -c '.commands[]' | while IFS= read -r cmd_json; do
+    local cmd
+    cmd=$(echo "$cmd_json" | jq -r '.command')
+    local args
+    args=$(echo "$cmd_json" | jq -r '.args')
+    execute_checkpoint_command "$prd_file" "$state_file" "$cmd" "$args"
+  done
+
+  # Update checkpoint tracking
+  local tmp_file="${state_file}.tmp.$$"
+  jq --arg type "$checkpoint_type" \
+     --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+     --argjson iter "$ITERATION" \
+     '.checkpoints.last_queue_planning = $time |
+      .checkpoints.last_iteration_at_checkpoint = $iter |
+      .checkpoints.history += [{type: $type, timestamp: $time, iteration: $iter}]' \
+     "$state_file" > "$tmp_file"
+  mv "$tmp_file" "$state_file"
+}
+
+execute_checkpoint_command() {
+  local prd_file="$1"
+  local state_file="$2"
+  local cmd="$3"
+  local args="$4"
+  local tmp_file="${state_file}.tmp.$$"
+
+  case "$cmd" in
+    DISPATCH)
+      # Format: task-id:agent:isolation
+      local task_id agent isolation
+      IFS=':' read -r task_id agent isolation <<< "$args"
+      log_info "Checkpoint dispatching $task_id to $agent (isolation: $isolation)"
+      dispatch_agent "$prd_file" "$state_file" "$task_id" "$agent"
+      ;;
+    REORDER)
+      # Format: task-id, task-id, ...
+      log_info "Checkpoint reordering queue: $args"
+      local new_order
+      new_order=$(echo "$args" | tr -d ' ' | tr ',' '\n' | jq -R . | jq -s .)
+      jq --argjson order "$new_order" '.queue.ready = $order' "$state_file" > "$tmp_file"
+      mv "$tmp_file" "$state_file"
+      ;;
+    REASSIGN)
+      # Format: task-id:agent
+      local task_id agent
+      IFS=':' read -r task_id agent <<< "$args"
+      log_info "Checkpoint reassigning $task_id to $agent"
+      jq --arg id "$task_id" --arg agent "$agent" \
+         '.tasks[$id].assigned_to = $agent' "$state_file" > "$tmp_file"
+      mv "$tmp_file" "$state_file"
+      ;;
+    ADD_DEPENDENCY)
+      # Format: from:to:confidence
+      local from to confidence
+      IFS=':' read -r from to confidence <<< "$args"
+      log_info "Checkpoint adding dependency: $from -> $to (confidence: $confidence)"
+      jq --arg from "$from" --arg to "$to" --arg conf "$confidence" \
+         '.discovered_dependencies += [{
+             from: $from,
+             to: $to,
+             confidence: ($conf | tonumber),
+             discovered_at: (now | todate),
+             discovered_by: "checkpoint",
+             status: "applied"
+         }]' "$state_file" > "$tmp_file"
+      mv "$tmp_file" "$state_file"
+      rebuild_queue "$prd_file" "$state_file"
+      ;;
+    UNBLOCK)
+      # Format: task-id:strategy[:details]
+      local task_id strategy details
+      IFS=':' read -r task_id strategy details <<< "$args"
+      log_info "Checkpoint unblocking $task_id with strategy: $strategy"
+      handle_unblock_strategy "$state_file" "$task_id" "$strategy" "$details"
+      ;;
+    APPROVED)
+      # Format: section-number
+      log_info "Checkpoint approved section $args"
+      jq --arg section "$args" \
+         '.checkpoints.reviewed_sections = ((.checkpoints.reviewed_sections // []) + [($section | tonumber)])' \
+         "$state_file" > "$tmp_file"
+      mv "$tmp_file" "$state_file"
+      ;;
+    NEEDS_WORK)
+      # Format: section-number:reason
+      local section reason
+      IFS=':' read -r section reason <<< "$args"
+      log_warn "Checkpoint: Section $section needs work: $reason"
+      mark_section_needs_rework "$prd_file" "$state_file" "$section" "$reason"
+      ;;
+    WAIT)
+      log_info "Checkpoint: Waiting - $args"
+      ;;
+    NOOP)
+      log_info "Checkpoint: No action needed"
+      ;;
+  esac
+}
+
+handle_unblock_strategy() {
+  local state_file="$1"
+  local task_id="$2"
+  local strategy="$3"
+  local details="$4"
+  local tmp_file="${state_file}.tmp.$$"
+
+  case "$strategy" in
+    alternate-agent)
+      jq --arg id "$task_id" --arg agent "$details" \
+         '.tasks[$id].status = "pending" |
+          .tasks[$id].assigned_to = $agent |
+          .queue.blocked = (.queue.blocked - [$id]) |
+          .queue.ready = (.queue.ready + [$id])' \
+         "$state_file" > "$tmp_file"
+      mv "$tmp_file" "$state_file"
+      ;;
+    skip-and-continue)
+      jq --arg id "$task_id" \
+         '.tasks[$id].status = "skipped" |
+          .queue.blocked = (.queue.blocked - [$id])' \
+         "$state_file" > "$tmp_file"
+      mv "$tmp_file" "$state_file"
+      ;;
+    escalate)
+      log_warn "ESCALATION REQUIRED for task $task_id: $details"
+      jq --arg id "$task_id" --arg reason "$details" \
+         '.tasks[$id].escalation_reason = $reason' \
+         "$state_file" > "$tmp_file"
+      mv "$tmp_file" "$state_file"
+      ;;
+  esac
+}
+
+mark_section_needs_rework() {
+  local prd_file="$1"
+  local state_file="$2"
+  local section="$3"
+  local reason="$4"
+
+  local section_tasks
+  section_tasks=$(jq -r --arg n "$section" '
+    .sections[] | select(.number == ($n | tonumber)) | .tasks[].id
+  ' "$prd_file")
+
+  while IFS= read -r task_id; do
+    [[ -z "$task_id" ]] && continue
+    local tmp_file="${state_file}.tmp.$$"
+    jq --arg id "$task_id" --arg reason "$reason" \
+       '.tasks[$id].status = "pending" |
+        .tasks[$id].rework_reason = $reason |
+        .queue.completed = (.queue.completed - [$id]) |
+        .queue.ready = (.queue.ready + [$id])' \
+       "$state_file" > "$tmp_file"
+    mv "$tmp_file" "$state_file"
+  done <<< "$section_tasks"
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -386,6 +628,32 @@ run_dispatch_loop() {
 
     # Process completed agents
     process_completed_agents "$prd_file" "$state_file"
+
+    # Check for checkpoint triggers
+    if should_trigger_queue_planning "$state_file"; then
+      run_checkpoint "queue-planning" "$prd_file" "$state_file" "--max-parallel $MAX_PARALLEL"
+    fi
+
+    # Check for section completion and trigger review
+    local sections
+    sections=$(jq -r '.sections[].number' "$prd_file")
+    for section_num in $sections; do
+      if should_trigger_completion_review "$prd_file" "$state_file" "$section_num"; then
+        run_checkpoint "completion-review" "$prd_file" "$state_file" "--section $section_num"
+      fi
+    done
+
+    # Check for blocked tasks needing resolution
+    local blocked_tasks
+    blocked_tasks=$(jq -r '.queue.blocked[]?' "$state_file" 2>/dev/null || echo "")
+    for task_id in $blocked_tasks; do
+      [[ -z "$task_id" ]] && continue
+      local retries
+      retries=$(get_retries "$task_id")
+      if [[ $retries -ge $MAX_RETRIES ]]; then
+        run_checkpoint "blocker-resolution" "$prd_file" "$state_file" "--task $task_id"
+      fi
+    done
 
     # Dispatch new agents
     local active_count=$(get_active_count)
