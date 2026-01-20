@@ -214,13 +214,13 @@ run_checkpoint() {
   fi
 
   # Process commands
-  echo "$output" | jq -c '.commands[]' | while IFS= read -r cmd_json; do
+  while IFS= read -r cmd_json; do
     local cmd
     cmd=$(echo "$cmd_json" | jq -r '.command')
     local args
     args=$(echo "$cmd_json" | jq -r '.args')
     execute_checkpoint_command "$prd_file" "$state_file" "$cmd" "$args"
-  done
+  done < <(echo "$output" | jq -c '.commands[]')
 
   # Update checkpoint tracking
   local tmp_file="${state_file}.tmp.$$"
@@ -294,7 +294,7 @@ execute_checkpoint_command() {
       # Format: section-number
       log_info "Checkpoint approved section $args"
       jq --arg section "$args" \
-         '.checkpoints.reviewed_sections = ((.checkpoints.reviewed_sections // []) + [($section | tonumber)])' \
+         '.checkpoints.reviewed_sections = ((.checkpoints.reviewed_sections // []) + [($section | tonumber)] | unique)' \
          "$state_file" > "$tmp_file"
       mv "$tmp_file" "$state_file"
       ;;
