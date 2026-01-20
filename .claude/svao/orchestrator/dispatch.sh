@@ -697,8 +697,40 @@ handle_failure() {
 run_dispatch_loop() {
   local prd_file="$1"
   local state_file="$2"
+  local resume="${3:-false}"
 
-  load_state "$state_file"
+  # Validate PRD hasn't changed
+  if ! validate_prd_unchanged "$prd_file" "$state_file"; then
+    log_error "Cannot proceed: PRD modified. Re-compile required."
+    exit 1
+  fi
+
+  # Handle resume vs fresh start
+  if [[ "$resume" == "true" ]]; then
+    if detect_interrupted_session "$state_file"; then
+      log_warn "Resuming interrupted session..."
+      cleanup_stale_processes "$state_file"
+      load_state "$state_file"
+      log_success "Resumed at iteration $ITERATION"
+    else
+      log_info "No interrupted session found, starting fresh"
+      load_state "$state_file"
+    fi
+  else
+    # Fresh start - reset session
+    local tmp_file="${state_file}.tmp.$$"
+    jq --arg id "svao-$(date +%Y%m%d-%H%M%S)" \
+       --arg started "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+       '.session.id = $id | .session.started_at = $started | .session.iteration = 0 | .session.status = "running"' \
+       "$state_file" > "$tmp_file"
+    mv "$tmp_file" "$state_file"
+    load_state "$state_file"
+  fi
+
+  # Mark session as running
+  local tmp_file="${state_file}.tmp.$$"
+  jq '.session.status = "running"' "$state_file" > "$tmp_file"
+  mv "$tmp_file" "$state_file"
 
   log_info "Starting dispatch loop (max parallel: $MAX_PARALLEL)"
 

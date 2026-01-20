@@ -55,6 +55,7 @@ Commands:
 Dispatch Options:
   --max-parallel N           Maximum concurrent agents (default: 3)
   --max-iterations N         Maximum iterations (default: 50)
+  --resume                   Resume an interrupted session
 
 Options:
   -h, --help                 Show this help message
@@ -116,11 +117,13 @@ cmd_dispatch() {
   # Parse additional options
   local max_parallel=3
   local max_iterations=50
+  local resume=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
       --max-parallel) max_parallel="$2"; shift 2 ;;
       --max-iterations) max_iterations="$2"; shift 2 ;;
+      --resume) resume=true; shift ;;
       *) shift ;;
     esac
   done
@@ -154,14 +157,27 @@ cmd_dispatch() {
     exit 1
   fi
 
+  # Auto-detect resume if session was running
+  if [[ "$resume" == "false" ]]; then
+    local session_status
+    session_status=$(jq -r '.session.status' "$state_file")
+    if [[ "$session_status" == "running" ]]; then
+      log_warn "Detected interrupted session. Use --resume to continue."
+      log_info "Or re-compile to start fresh: svao.sh compile $change_id"
+      exit 1
+    fi
+  fi
+
   log_info "Running SVAO for: $change_id"
   log_info "PRD: $prd_file"
   log_info "Max parallel: $max_parallel"
+  [[ "$resume" == "true" ]] && log_info "Mode: Resume"
 
   export MAX_PARALLEL="$max_parallel"
   export MAX_ITERATIONS="$max_iterations"
+  export SVAO_RESUME="$resume"
 
-  "$SCRIPT_DIR/dispatch.sh" "$prd_file" "$state_file"
+  "$SCRIPT_DIR/dispatch.sh" "$prd_file" "$state_file" "$resume"
 }
 
 cmd_status() {
