@@ -252,9 +252,8 @@ if [[ "$DRY_RUN" == true ]]; then
     .[0:5][] |
     "  \(.id): \(.description)"'
 
-  REMAINING=$((READY_COUNT - 5))
-  if [[ $REMAINING -gt 0 ]]; then
-    echo "  ... and $REMAINING more"
+  if [[ $READY_COUNT -gt 5 ]]; then
+    echo "  ... and $((READY_COUNT - 5)) more"
   fi
 
   if [[ "$PENDING_COUNT" -gt 0 ]]; then
