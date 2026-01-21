@@ -59,8 +59,8 @@ looks_like_command() {
     [[ "$line" =~ ^\[.*\] ]] && return 1  # Markdown links
 
     # Check if line starts with any known command word (allowed or forbidden)
-    local first_word="${line%%:*}"
-    first_word="${first_word%% *}"
+    # Extract the first word (before any colon or space)
+    local first_word="${line%%[: ]*}"
 
     for cmd in "${ALLOWED_COMMANDS[@]}" "${FORBIDDEN_COMMANDS[@]}"; do
         if [[ "$first_word" == "$cmd" ]]; then

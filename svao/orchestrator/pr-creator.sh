@@ -25,7 +25,28 @@ log_error() { echo -e "${RED}x${NC} $*" >&2; }
 
 # Get the default branch name (main, master, etc.)
 get_default_branch() {
-  git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main"
+  local default_branch
+
+  # Prefer Git's configured origin/HEAD ref
+  if default_branch=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null); then
+    # Strip leading "origin/" if present
+    default_branch="${default_branch#origin/}"
+    echo "$default_branch"
+    return 0
+  fi
+
+  # Fallback: check for common default branch names on the remote
+  if git show-ref --verify --quiet refs/remotes/origin/main 2>/dev/null; then
+    echo "main"
+    return 0
+  fi
+  if git show-ref --verify --quiet refs/remotes/origin/master 2>/dev/null; then
+    echo "master"
+    return 0
+  fi
+
+  # Final fallback to 'main' if nothing else can be determined
+  echo "main"
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -239,7 +260,7 @@ $(jq -r --arg n "$section_num" '
 
 ### Phase Review
 $(jq -r --arg n "$section_num" '
-  if .phase_reviews[$n].human_reviews then
+  if (.phase_reviews[$n].human_reviews | length) > 0 then
     "**Issues flagged for human review:**\n" +
     (.phase_reviews[$n].human_reviews | map("- " + .) | join("\n"))
   else
