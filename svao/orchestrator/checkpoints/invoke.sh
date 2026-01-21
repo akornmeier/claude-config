@@ -19,10 +19,10 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-log_info() { echo -e "${GREEN}[checkpoint]${NC} $*"; }
-log_warn() { echo -e "${YELLOW}[checkpoint]${NC} $*"; }
+log_info() { echo -e "${GREEN}[checkpoint]${NC} $*" >&2; }
+log_warn() { echo -e "${YELLOW}[checkpoint]${NC} $*" >&2; }
 log_error() { echo -e "${RED}[checkpoint]${NC} $*" >&2; }
-log_checkpoint() { echo -e "${CYAN}[checkpoint:$1]${NC} $2"; }
+log_checkpoint() { echo -e "${CYAN}[checkpoint:$1]${NC} $2" >&2; }
 
 usage() {
     cat << EOF
@@ -402,12 +402,29 @@ build_prompt() {
             local section_commits
             section_commits=$(build_section_commits "$state_file" "$section_num")
 
+            # Get phase review results if available
+            local phase_review_results
+            phase_review_results=$(jq -r --arg n "$section_num" '
+              if .phase_reviews[$n] then
+                "**Completed at:** \(.phase_reviews[$n].completed_at)\n\n" +
+                if (.phase_reviews[$n].human_reviews | length) > 0 then
+                  "**Issues flagged for human review:**\n" +
+                  (.phase_reviews[$n].human_reviews | map("- " + .) | join("\n"))
+                else
+                  "No issues flagged for human review."
+                end
+              else
+                "Phase review not yet run."
+              end
+            ' "$state_file" 2>/dev/null || echo "Phase review data not available.")
+
             specific_content="${specific_content//\{\{SECTION_NUMBER\}\}/$section_num}"
             specific_content="${specific_content//\{\{SECTION_NAME\}\}/$section_name}"
             specific_content="${specific_content//\{\{SECTION_TASKS\}\}/$section_tasks}"
             specific_content="${specific_content//\{\{SECTION_COMMITS\}\}/$section_commits}"
             specific_content="${specific_content//\{\{FILES_CHANGED\}\}/See commits above}"
             specific_content="${specific_content//\{\{TEST_RESULTS\}\}/Run test suite to verify}"
+            specific_content="${specific_content//\{\{PHASE_REVIEW_RESULTS\}\}/$phase_review_results}"
             ;;
 
         blocker-resolution)

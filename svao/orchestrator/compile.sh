@@ -224,6 +224,41 @@ PRD_JSON=$(echo "$PRD_JSON" | jq '
   )
 ')
 
+# Infer agent_type from files and description when not explicitly set
+# Note: test-writer removed - with TDD, frontend-coder/api-builder write tests first
+# Phase-level test review is handled by phase-reviewer at section completion
+log "Inferring agent types..."
+PRD_JSON=$(echo "$PRD_JSON" | jq '
+  # Helper function to check if any file matches a pattern
+  def files_match($patterns):
+    . as $files |
+    ($patterns | any(. as $pat | $files | any(test($pat))));
+
+  # Helper function to check if description matches patterns (case insensitive)
+  def desc_match($patterns):
+    . as $desc |
+    ($desc | ascii_downcase) as $lower |
+    ($patterns | any(. as $pat | $lower | test($pat)));
+
+  .sections |= map(
+    .tasks |= map(
+      # Only infer if agent_type is null or empty
+      if (.agent_type // "") == "" then
+        # API builder patterns (backend, database, API work)
+        if ((.files // []) | files_match(["convex/", "schema\\.ts", "mutations\\.ts", "queries\\.ts", "/api/", "\\.api\\.(ts|js)$", "functions/", "server/"])) or
+           ((.description // "") | desc_match(["\\bapi\\b", "\\bmutation", "\\bquery", "\\bschema\\b", "\\bconvex\\b", "\\bendpoint", "\\bbackend\\b", "\\bdatabase\\b"]))
+        then .agent_type = "api-builder"
+        # Default to frontend-coder (handles components, hooks, pages, AND writes tests via TDD)
+        else .agent_type = "frontend-coder"
+        end
+      else .
+      end
+    )
+  )
+')
+INFERRED_AGENTS=$(echo "$PRD_JSON" | jq '[.sections[].tasks[].agent_type] | group_by(.) | map({(.[0]): length}) | add')
+log_success "Agent types: $INFERRED_AGENTS"
+
 if [[ "$DRY_RUN" == true ]]; then
   # Calculate queue counts for dry-run display (excluding pre-completed tasks)
   COMPLETED_COUNT=$(echo "$PRD_JSON" | jq '[.sections[].tasks[] | select(.completed == true)] | length')

@@ -2,7 +2,12 @@
 
 ## Completion Review Instructions
 
-Section {{SECTION_NUMBER}} ({{SECTION_NAME}}) has all tasks completed. Review the work against the spec.
+Section {{SECTION_NUMBER}} ({{SECTION_NAME}}) has all tasks completed.
+
+**The phase-reviewer agent has already:**
+- Reviewed test coverage
+- Implemented additional tests for edge cases and error paths
+- Flagged architecture/security issues for human review
 
 ### Section Tasks
 
@@ -20,11 +25,28 @@ Section {{SECTION_NUMBER}} ({{SECTION_NAME}}) has all tasks completed. Review th
 
 {{TEST_RESULTS}}
 
+### Phase Reviewer Findings
+
+{{PHASE_REVIEW_RESULTS}}
+
 ## Your Task
 
-Review whether this section meets the specification. Output either:
+Based on the phase reviewer's work and the test results, decide if this section is ready.
 
-- `APPROVED: {{SECTION_NUMBER}}` - If work meets spec and tests pass
-- `NEEDS_WORK: {{SECTION_NUMBER}}:<specific issue>` - If rework is needed
+**Output ONLY ONE of these commands (nothing else):**
 
-Be specific about what needs fixing if not approved.
+- `APPROVED: {{SECTION_NUMBER}}` - If tests pass and no blocking issues
+- `NEEDS_WORK: {{SECTION_NUMBER}}:<specific issue>` - If tests fail or critical issues exist
+
+**Note:** HUMAN_REVIEW items flagged by phase-reviewer do not block approval - they are informational for the human operator.
+
+Example valid responses:
+```
+APPROVED: {{SECTION_NUMBER}}
+```
+or
+```
+NEEDS_WORK: {{SECTION_NUMBER}}:Tests failing in AuthProvider
+```
+
+**Do NOT include any explanatory text, analysis, or markdown. Output only the command.**

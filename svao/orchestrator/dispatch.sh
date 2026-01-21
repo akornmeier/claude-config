@@ -194,25 +194,27 @@ rebuild_queue() {
   local completed=$(jq -r '[.tasks | to_entries[] | select(.value.status == "completed") | .key] | @json' "$state_file")
 
   jq --argjson completed "$completed" --slurpfile prd "$prd_file" '
+    # Capture state file as $state before iterating (jq scoping fix)
+    . as $state |
     ($prd[0]) as $p |
     # Ready: pending tasks with all deps completed
     .queue.ready = [
       $p.sections[].tasks[] |
       . as $task |
       select(
-        (.tasks[$task.id].status // "pending") == "pending" and
+        ($state.tasks[$task.id].status // "pending") == "pending" and
         (($task.depends_on // []) - $completed | length) == 0
       ) |
       .id
     ] |
     # In progress
-    .queue.in_progress = [.tasks | to_entries[] | select(.value.status == "in_progress") | .key] |
+    .queue.in_progress = [$state.tasks | to_entries[] | select(.value.status == "in_progress") | .key] |
     # Blocked: pending with unmet deps
     .queue.blocked = [
       $p.sections[].tasks[] |
       . as $task |
       select(
-        (.tasks[$task.id].status // "pending") == "pending" and
+        ($state.tasks[$task.id].status // "pending") == "pending" and
         (($task.depends_on // []) - $completed | length) > 0
       ) |
       .id
@@ -295,8 +297,13 @@ run_checkpoint() {
   fi
 
   local output
-  if ! output=$("$invoker" "$checkpoint_type" "$change_id" $extra_args 2>&1); then
-    log_error "Checkpoint invocation failed: $output"
+  local stderr_file
+  stderr_file=$(mktemp)
+  # Ensure temp file is cleaned up even if subsequent code fails
+  trap 'rm -f "$stderr_file"' RETURN
+  if ! output=$("$invoker" "$checkpoint_type" "$change_id" $extra_args 2>"$stderr_file"); then
+    log_error "Checkpoint invocation failed:"
+    cat "$stderr_file" >&2
     return 1
   fi
 
@@ -393,18 +400,24 @@ execute_checkpoint_command() {
          "$state_file" > "$tmp_file"
       mv "$tmp_file" "$state_file"
 
-      # Create PR for approved section
+      # Mark PR as ready for review (draft PR was created on first task)
       if [[ -f "$PR_CREATOR" ]]; then
-        log_info "Creating PR for section $args..."
+        log_info "Marking PR ready for section $args..."
         local pr_url=""
         local progress_file="$(dirname "$state_file")/progress.md"
-        if pr_url=$("$PR_CREATOR" create "$prd_file" "$state_file" "$args" 2>&1); then
-          # Log to progress only on success
-          "$PROGRESS_WRITER" log "$progress_file" section_complete "$args" "PR: $pr_url" || true
+
+        # First try to mark existing draft PR as ready
+        if pr_url=$("$PR_CREATOR" ready "$prd_file" "$state_file" "$args" 2>&1) && [[ -n "$pr_url" ]]; then
+          "$PROGRESS_WRITER" log "$progress_file" section_complete "$args" "PR ready: $pr_url" || true
         else
-          log_warn "PR creation failed: $pr_url"
-          # Log to progress without PR URL
-          "$PROGRESS_WRITER" log "$progress_file" section_complete "$args" "PR creation failed" || true
+          # Fallback: create full PR (for pre-completed sections or if draft failed)
+          log_info "Creating PR for section $args (fallback)..."
+          if pr_url=$("$PR_CREATOR" create "$prd_file" "$state_file" "$args" 2>&1); then
+            "$PROGRESS_WRITER" log "$progress_file" section_complete "$args" "PR: $pr_url" || true
+          else
+            log_warn "PR creation failed: $pr_url"
+            "$PROGRESS_WRITER" log "$progress_file" section_complete "$args" "Section complete (no PR)" || true
+          fi
         fi
       fi
       ;;
@@ -584,6 +597,144 @@ mark_section_needs_rework() {
 }
 
 # ─────────────────────────────────────────────────────────────
+# Phase Review (Expert Tester at Section Completion)
+# ─────────────────────────────────────────────────────────────
+
+start_phase_reviewer() {
+  local prd_file="$1"
+  local state_file="$2"
+  local section_num="$3"
+
+  local agent_def="$SVAO_ROOT/agents/phase-reviewer.md"
+  if [[ ! -f "$agent_def" ]]; then
+    log_warn "Phase reviewer agent not found: $agent_def"
+    # Mark as completed so checkpoint can proceed
+    echo "completed" > "$STATUS_DIR/phase-review-section-${section_num}.status"
+    return 0
+  fi
+
+  # Get section branch
+  local change_id
+  change_id=$(jq -r '.change_id' "$prd_file")
+  local section_branch="svao/${change_id}/section-${section_num}"
+
+  log_info "Starting phase-reviewer subagent for section $section_num (branch: $section_branch)..."
+
+  # Get section info
+  local section_name
+  section_name=$(jq -r --arg n "$section_num" '.sections[] | select(.number == ($n | tonumber)) | .name' "$prd_file")
+
+  # Get files changed in this section
+  local section_files
+  section_files=$(jq -r --arg n "$section_num" '
+    .sections[] | select(.number == ($n | tonumber)) | .tasks[].files[]?
+  ' "$prd_file" | sort -u | tr '\n' ' ')
+
+  # Extract agent prompt (skip frontmatter)
+  local agent_prompt
+  agent_prompt=$(awk '/^---$/{p=!p;next} !p' "$agent_def")
+
+  # Build review prompt with git workflow
+  local prompt="$agent_prompt
+
+---
+
+## Phase Review: Section $section_num - $section_name
+
+You are reviewing section $section_num which has all tasks marked complete.
+
+### Git Workflow
+
+**IMPORTANT: First checkout the section branch:**
+\`\`\`bash
+git checkout $section_branch
+git pull origin $section_branch
+\`\`\`
+
+After adding tests, commit and push to the section branch:
+\`\`\`bash
+git add -A
+git commit -m \"test($section_num): add coverage for phase review\"
+git push origin $section_branch
+\`\`\`
+
+### Files in this section:
+$section_files
+
+### Your Tasks:
+
+1. **Checkout the section branch** (see above)
+2. **Review test coverage** for all files in this section
+3. **Implement missing tests** for edge cases, error paths, and coverage gaps
+4. **Commit and push** any new tests to the section branch
+5. **Flag architecture/security issues** for human review (do NOT fix these)
+
+Run the test suite, analyze coverage, and implement any missing tests.
+
+When complete, output your signals:
+\`\`\`
+PHASE_REVIEW_COMPLETE: $section_num
+TESTS_ADDED: [count]
+COVERAGE_BEFORE: [X]%
+COVERAGE_AFTER: [Y]%
+HUMAN_REVIEW: [type]: [description]  (repeat for each issue)
+\`\`\`
+"
+
+  local output_file="$STATUS_DIR/phase-review-section-${section_num}.output"
+  local status_file="$STATUS_DIR/phase-review-section-${section_num}.status"
+
+  if command -v claude &> /dev/null; then
+    # Run as truly async background subagent (no wait)
+    (
+      echo "running" > "$status_file"
+      echo "$prompt" | claude --print --permission-mode bypassPermissions > "$output_file" 2>&1
+      local exit_code=$?
+
+      # Process results and update state
+      if [[ $exit_code -eq 0 ]] && grep -q "PHASE_REVIEW_COMPLETE" "$output_file"; then
+        # Extract and store human review items
+        local human_reviews
+        human_reviews=$(grep "^HUMAN_REVIEW:" "$output_file" 2>/dev/null || true)
+
+        if [[ -n "$human_reviews" ]]; then
+          local tmp_file="${state_file}.tmp.$$"
+          local jq_err_file="$STATUS_DIR/phase-review-section-${section_num}.jq.err"
+          if jq --arg section "$section_num" --arg reviews "$human_reviews" '
+            .phase_reviews[$section] = {
+              "completed_at": (now | todate),
+              "human_reviews": ($reviews | split("\n") | map(select(length > 0)))
+            }
+          ' "$state_file" > "$tmp_file" 2>"$jq_err_file"; then
+            mv "$tmp_file" "$state_file"
+            rm -f "$jq_err_file"
+          else
+            rm -f "$tmp_file"
+            echo "[$(date +%H:%M:%S)] ${YELLOW}⚠️${NC} Failed to update state with phase review for section $section_num. See $jq_err_file" >&2
+          fi
+        fi
+
+        echo "completed" > "$status_file"
+      else
+        echo "failed" > "$status_file"
+      fi
+    ) &
+
+    local pid=$!
+    log_agent "Phase reviewer PID $pid for section $section_num (running in background)"
+
+    # Track the PID so we can monitor it
+    echo "$pid:phase-review-$section_num" >> "$ACTIVE_FILE"
+
+  else
+    log_warn "Claude CLI not found, skipping phase review"
+    echo "PHASE_REVIEW_COMPLETE: $section_num" > "$output_file"
+    echo "TESTS_ADDED: 0" >> "$output_file"
+    echo "completed" > "$status_file"
+  fi
+}
+
+# ─────────────────────────────────────────────────────────────
 # Agent Dispatch
 # ─────────────────────────────────────────────────────────────
 
@@ -641,6 +792,97 @@ set_retries() {
   mv "${RETRIES_FILE}.tmp" "$RETRIES_FILE"
 }
 
+ensure_section_branch() {
+  local prd_file="$1"
+  local state_file="$2"
+  local section_num="$3"
+
+  # Get expected branch name
+  local change_id
+  change_id=$(jq -r '.change_id' "$prd_file")
+  local expected_branch="svao/${change_id}/section-${section_num}"
+
+  # Check 1: Already tracked in state
+  local branch_initialized
+  branch_initialized=$(jq -r --arg n "$section_num" '.section_branches[$n] // ""' "$state_file")
+
+  if [[ -n "$branch_initialized" ]]; then
+    # Verify branch still exists in git
+    if git rev-parse --verify "$branch_initialized" &> /dev/null || \
+       git ls-remote --exit-code --heads origin "$branch_initialized" &> /dev/null 2>&1; then
+      echo "$branch_initialized"
+      return 0
+    else
+      log_warn "Branch $branch_initialized no longer exists, will recreate"
+    fi
+  fi
+
+  # Check 2: Branch exists in git but not tracked in state (e.g., after recompile)
+  if git rev-parse --verify "$expected_branch" &> /dev/null; then
+    log_info "Branch $expected_branch already exists locally"
+    # Record in state
+    local tmp_file="${state_file}.tmp.$$"
+    jq --arg section "$section_num" --arg branch "$expected_branch" '
+      .section_branches = (.section_branches // {}) |
+      .section_branches[$section] = $branch
+    ' "$state_file" > "$tmp_file"
+    mv "$tmp_file" "$state_file"
+    echo "$expected_branch"
+    return 0
+  fi
+
+  # Check 3: Branch exists on remote
+  if git ls-remote --exit-code --heads origin "$expected_branch" &> /dev/null 2>&1; then
+    log_info "Branch $expected_branch exists on remote, fetching..."
+    git fetch origin "$expected_branch:$expected_branch" 2>/dev/null || true
+    # Record in state
+    local tmp_file="${state_file}.tmp.$$"
+    jq --arg section "$section_num" --arg branch "$expected_branch" '
+      .section_branches = (.section_branches // {}) |
+      .section_branches[$section] = $branch
+    ' "$state_file" > "$tmp_file"
+    mv "$tmp_file" "$state_file"
+    echo "$expected_branch"
+    return 0
+  fi
+
+  # Branch doesn't exist - create it
+  log_info "Creating branch for section $section_num..."
+
+  local branch_name
+  local init_stderr
+  init_stderr=$(mktemp)
+  # Capture stdout (branch name) separately from stderr (logs/errors)
+  if branch_name=$("$PR_CREATOR" init-branch "$prd_file" "$state_file" "$section_num" 2>"$init_stderr"); then
+    # Log stderr at debug level (contains info messages)
+    [[ -s "$init_stderr" ]] && cat "$init_stderr" >&2
+  else
+    log_warn "init-branch failed for section $section_num:"
+    cat "$init_stderr" >&2
+    branch_name=""
+  fi
+  rm -f "$init_stderr"
+
+  if [[ -n "$branch_name" ]]; then
+    # Record branch in state
+    local tmp_file="${state_file}.tmp.$$"
+    jq --arg section "$section_num" --arg branch "$branch_name" '
+      .section_branches = (.section_branches // {}) |
+      .section_branches[$section] = $branch
+    ' "$state_file" > "$tmp_file"
+    mv "$tmp_file" "$state_file"
+
+    # Create draft PR
+    "$PR_CREATOR" draft "$prd_file" "$state_file" "$section_num" 2>/dev/null || true
+
+    echo "$branch_name"
+  else
+    # Fallback: return expected branch name even if creation failed
+    log_warn "Could not create branch, using expected name: $expected_branch"
+    echo "$expected_branch"
+  fi
+}
+
 dispatch_agent() {
   local prd_file="$1"
   local state_file="$2"
@@ -655,10 +897,21 @@ dispatch_agent() {
     return 1
   fi
 
+  # Get section number from task ID (e.g., "3.2.1" -> "3")
+  local section_num="${task_id%%.*}"
+
+  # Ensure section branch exists and get branch name
+  local section_branch
+  section_branch=$(ensure_section_branch "$prd_file" "$state_file" "$section_num")
+
+  # Get section name for context
+  local section_name
+  section_name=$(jq -r --arg n "$section_num" '.sections[] | select(.number == ($n | tonumber)) | .name // "Unknown"' "$prd_file")
+
   # Extract agent prompt (skip frontmatter)
   local agent_prompt=$(awk '/^---$/{p=!p;next} !p' "$agent_def")
 
-  # Build full prompt
+  # Build full prompt with branch info
   local prompt="$agent_prompt
 
 ---
@@ -666,15 +919,36 @@ dispatch_agent() {
 ## Current Task
 
 Task ID: $task_id
+Section: $section_num - $section_name
 $(echo "$task_json" | jq -r '"Description: \(.description)\nFiles: \(.files | join(", "))"')
+
+---
+
+## Git Workflow
+
+**Branch:** \`$section_branch\`
+
+Before starting work:
+\`\`\`bash
+git checkout $section_branch
+git pull origin $section_branch
+\`\`\`
+
+After completing work:
+\`\`\`bash
+git add -A
+git commit -m \"feat($section_num): [description] [task-$task_id]\"
+git push origin $section_branch
+\`\`\`
 
 ---
 
 ## Instructions
 
 1. Follow TDD practices - write tests first
-2. Commit after completing the task
-3. Report status using signals:
+2. Work on branch: $section_branch
+3. Commit and push after completing the task
+4. Report status using signals:
 
    TASK_COMPLETE: $task_id
    FILES_CHANGED: [list files]
@@ -688,7 +962,7 @@ $(echo "$task_json" | jq -r '"Description: \(.description)\nFiles: \(.files | jo
    DISCOVERED_DEPENDENCY: [from] needs [to] because [reason]
 "
 
-  log_agent "Dispatching $agent_type for task $task_id"
+  log_agent "Dispatching $agent_type for task $task_id (branch: $section_branch)"
 
   # Update state
   update_task_status "$state_file" "$task_id" "in_progress"
@@ -706,7 +980,8 @@ $(echo "$task_json" | jq -r '"Description: \(.description)\nFiles: \(.files | jo
   # Dispatch agent (background)
   (
     if command -v claude &> /dev/null; then
-      echo "$prompt" | claude --print 2>&1 | tee "$STATUS_DIR/${task_id}.output"
+      # Grant file operation permissions for non-interactive autonomous agent mode
+      echo "$prompt" | claude --print --permission-mode bypassPermissions 2>&1 | tee "$STATUS_DIR/${task_id}.output"
       exit_code=${PIPESTATUS[1]}
     else
       log_warn "Claude CLI not found, simulating..."
@@ -910,7 +1185,40 @@ run_dispatch_loop() {
     sections=$(jq -r '.sections[].number' "$prd_file")
     for section_num in $sections; do
       if should_trigger_completion_review "$prd_file" "$state_file" "$section_num"; then
-        run_checkpoint "completion-review" "$prd_file" "$state_file" "--section $section_num"
+        # Check if phase review is already running or completed for this section
+        local phase_status_file="$STATUS_DIR/phase-review-section-${section_num}.status"
+        local phase_status="none"
+        [[ -f "$phase_status_file" ]] && phase_status=$(cat "$phase_status_file")
+
+        case "$phase_status" in
+          none)
+            # Ensure branch/PR exists (handles pre-completed sections from tasks.md)
+            local section_branch
+            section_branch=$(ensure_section_branch "$prd_file" "$state_file" "$section_num")
+            log_info "Section $section_num branch: $section_branch"
+
+            # Start phase-reviewer as background subagent
+            start_phase_reviewer "$prd_file" "$state_file" "$section_num"
+            ;;
+          running)
+            log_info "Phase reviewer still running for section $section_num..."
+            ;;
+          completed)
+            # Phase review done, run completion checkpoint
+            log_success "Phase review completed for section $section_num"
+            run_checkpoint "completion-review" "$prd_file" "$state_file" "--section $section_num"
+            # Mark as processed so we don't re-run checkpoint
+            echo "checkpoint_done" > "$phase_status_file"
+            ;;
+          failed)
+            log_warn "Phase review failed for section $section_num, running checkpoint anyway"
+            run_checkpoint "completion-review" "$prd_file" "$state_file" "--section $section_num"
+            echo "checkpoint_done" > "$phase_status_file"
+            ;;
+          checkpoint_done)
+            # Already processed, skip
+            ;;
+        esac
       fi
     done
 

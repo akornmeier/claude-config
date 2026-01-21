@@ -32,8 +32,16 @@ Consider these strategies in order:
 
 ## Your Task
 
-Output one of:
+**Output ONLY ONE of these commands (nothing else):**
+
 - `UNBLOCK: {{TASK_ID}}:alternate-agent:<agent-name>` - Try different agent
 - `UNBLOCK: {{TASK_ID}}:skip-and-continue` - Skip this task, continue others
 - `UNBLOCK: {{TASK_ID}}:escalate:<reason>` - Request human help
 - `REASSIGN: {{TASK_ID}}:<agent>` - Reassign to specific agent with context
+
+Example:
+```
+UNBLOCK: {{TASK_ID}}:alternate-agent:bug_fix
+```
+
+**Do NOT include any explanatory text, analysis, or markdown. Output only the command.**
