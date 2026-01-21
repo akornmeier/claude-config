@@ -18,6 +18,7 @@ class Task:
     depends_on: list[str] = field(default_factory=list)
     agent_type: str | None = None
     complexity: str = "medium"
+    completed: bool = False
 
 
 @dataclass
@@ -48,8 +49,9 @@ def parse_tasks_md(content: str) -> ParseResult:
     #   - Two-level: 1.1, 1.2
     #   - Three-level: 1.1.1, 1.2.3
     #   - With letters: 1.1.2a, 1.1.2b
+    #   - Captures checkbox state (space = incomplete, x = complete)
     task_pattern = re.compile(
-        r'^- \[[ x]\] (\d+\.\d+(?:\.\d+)?[a-z]?) (.+?)(?:\s*\(files?:\s*([^)]+)\))?'
+        r'^- \[([ x])\] (\d+\.\d+(?:\.\d+)?[a-z]?) (.+?)(?:\s*\(files?:\s*([^)]+)\))?'
         r'(?:\s*\(depends?:\s*([^)]+)\))?'
         r'(?:\s*\(agent:\s*([^)]+)\))?'
         r'(?:\s*\(complexity:\s*([^)]+)\))?$',
@@ -76,12 +78,14 @@ def parse_tasks_md(content: str) -> ParseResult:
 
         # Parse tasks in this section
         for task_match in task_pattern.finditer(section_content):
-            task_id = task_match.group(1)
-            description = task_match.group(2).strip()
-            files_str = task_match.group(3)
-            depends_str = task_match.group(4)
-            agent = task_match.group(5)
-            complexity = task_match.group(6)
+            checkbox_state = task_match.group(1)
+            task_id = task_match.group(2)
+            description = task_match.group(3).strip()
+            files_str = task_match.group(4)
+            depends_str = task_match.group(5)
+            agent = task_match.group(6)
+            complexity = task_match.group(7)
+            is_completed = checkbox_state == 'x'
 
             # Validate task ID matches section (first number should match section)
             task_section = int(task_id.split('.')[0])
@@ -115,7 +119,8 @@ def parse_tasks_md(content: str) -> ParseResult:
                 files=files,
                 depends_on=depends_on,
                 agent_type=agent.strip() if agent else None,
-                complexity=complexity
+                complexity=complexity,
+                completed=is_completed
             )
             section.tasks.append(task)
 
@@ -186,7 +191,8 @@ def main():
                         "files": t.files,
                         "depends_on": t.depends_on,
                         "agent_type": t.agent_type,
-                        "complexity": t.complexity
+                        "complexity": t.complexity,
+                        "completed": t.completed
                     }
                     for t in s.tasks
                 ]
