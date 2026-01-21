@@ -43,9 +43,13 @@ def parse_tasks_md(content: str) -> ParseResult:
     # Pattern for section headers: ## N. Name
     section_pattern = re.compile(r'^## (\d+)\. (.+)$', re.MULTILINE)
 
-    # Pattern for tasks: - [ ] N.M Description (files: ...) (depends: ...) etc
+    # Pattern for tasks: - [ ] N.M.P[a] Description (files: ...) (depends: ...) etc
+    # Supports:
+    #   - Two-level: 1.1, 1.2
+    #   - Three-level: 1.1.1, 1.2.3
+    #   - With letters: 1.1.2a, 1.1.2b
     task_pattern = re.compile(
-        r'^- \[[ x]\] (\d+\.\d+) (.+?)(?:\s*\(files?:\s*([^)]+)\))?'
+        r'^- \[[ x]\] (\d+\.\d+(?:\.\d+)?[a-z]?) (.+?)(?:\s*\(files?:\s*([^)]+)\))?'
         r'(?:\s*\(depends?:\s*([^)]+)\))?'
         r'(?:\s*\(agent:\s*([^)]+)\))?'
         r'(?:\s*\(complexity:\s*([^)]+)\))?$',
@@ -79,16 +83,16 @@ def parse_tasks_md(content: str) -> ParseResult:
             agent = task_match.group(5)
             complexity = task_match.group(6)
 
-            # Validate task ID matches section
-            expected_prefix = f"{section_num}."
-            if not task_id.startswith(expected_prefix):
-                errors.append(f"Task {task_id} in section {section_num} should start with '{expected_prefix}'")
+            # Validate task ID matches section (first number should match section)
+            task_section = int(task_id.split('.')[0])
+            if task_section != section_num:
+                errors.append(f"Task {task_id} in section {section_num} should start with '{section_num}.'")
 
-            # Parse files
+            # Parse files (optional - warn if missing)
             if files_str:
                 files = [f.strip() for f in files_str.split(',')]
             else:
-                errors.append(f"Task {task_id} missing required (files: ...) annotation")
+                warnings.append(f"Task {task_id} missing (files: ...) annotation - agent routing may be less accurate")
                 files = []
 
             # Parse dependencies
