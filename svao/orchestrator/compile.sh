@@ -231,7 +231,11 @@ if [[ "$DRY_RUN" == true ]]; then
   BLOCKED_COUNT=$(echo "$PRD_JSON" | jq '[.sections[].tasks[] | select(.completed != true and (.depends_on | length) > 0)] | length')
   PENDING_COUNT=$(echo "$INFERRED_JSON" | jq '.pending_review | length')
   REMAINING=$((TASK_COUNT - COMPLETED_COUNT))
-  PROGRESS_PERCENT=$((COMPLETED_COUNT * 100 / TASK_COUNT))
+  if (( TASK_COUNT > 0 )); then
+    PROGRESS_PERCENT=$((COMPLETED_COUNT * 100 / TASK_COUNT))
+  else
+    PROGRESS_PERCENT=0
+  fi
 
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
