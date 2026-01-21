@@ -441,8 +441,8 @@ case "${1:-}" in
       exit 1
     fi
 
-    local prd_file="$change_dir/prd.json"
-    local state_file="$change_dir/prd-state.json"
+    prd_file="$change_dir/prd.json"
+    state_file="$change_dir/prd-state.json"
 
     if [[ ! -f "$prd_file" ]]; then
       log_error "PRD not found: $prd_file"
