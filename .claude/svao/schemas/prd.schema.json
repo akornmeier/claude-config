@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://svao.local/prd.schema.json",
+  "title": "SVAO PRD Specification",
+  "description": "Immutable task specification compiled from OpenSpec",
+  "type": "object",
+  "required": ["version", "change_id", "compiled_at", "sections", "summary"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "change_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "compiled_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_hash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "summary": { "type": "string" },
+        "proposal_file": { "type": "string" },
+        "design_file": { "type": "string" }
+      }
+    },
+    "success_criteria": {
+      "type": "object",
+      "properties": {
+        "tests_pass": { "type": "string" },
+        "lint_clean": { "type": "string" },
+        "type_check": { "type": "string" }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/section" }
+    },
+    "dependencies": {
+      "type": "object",
+      "properties": {
+        "explicit": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/dependency" }
+        },
+        "inferred": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/dependency" }
+        },
+        "pending_review": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/dependency" }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total_sections", "total_tasks"],
+      "properties": {
+        "total_sections": { "type": "integer" },
+        "total_tasks": { "type": "integer" },
+        "explicit_dependencies": { "type": "integer" },
+        "inferred_dependencies": { "type": "integer" },
+        "pending_review": { "type": "integer" }
+      }
+    }
+  },
+  "$defs": {
+    "section": {
+      "type": "object",
+      "required": ["number", "name", "tasks"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string" },
+        "tasks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/task" }
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["id", "description", "files"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$"
+        },
+        "description": { "type": "string" },
+        "files": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "agent_type": { "type": "string" },
+        "complexity": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "blocks": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "reason": { "type": "string" }
+      }
+    }
+  }
+}

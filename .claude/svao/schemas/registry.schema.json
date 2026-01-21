@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://svao.local/registry.schema.json",
+  "title": "SVAO Agent Registry",
+  "description": "Schema for the SVAO agent registry configuration",
+  "type": "object",
+  "required": ["version", "agents", "orchestrator"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/agentEntry"
+      }
+    },
+    "orchestrator": {
+      "type": "object",
+      "required": ["max_parallel_agents", "checkpoint_interval"],
+      "properties": {
+        "max_parallel_agents": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "checkpoint_interval": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "metrics_file": {
+          "type": "string"
+        },
+        "progress_file": {
+          "type": "string"
+        },
+        "default_stop_signals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "checkpoints": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "interval": { "type": "integer", "minimum": 1, "default": 5 },
+            "types": {
+              "type": "object",
+              "properties": {
+                "queue-planning": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "trigger": { "enum": ["interval"], "default": "interval" }
+                  }
+                },
+                "blocker-resolution": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "trigger": { "enum": ["event"], "default": "event" }
+                  }
+                },
+                "completion-review": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "trigger": { "enum": ["event"], "default": "event" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "validators": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "agentEntry": {
+      "type": "object",
+      "required": ["definition", "enabled"],
+      "properties": {
+        "definition": {
+          "type": "string",
+          "description": "Path to agent definition file"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "isolation_default": {
+          "type": "string",
+          "enum": ["task", "worktree"]
+        },
+        "isolation_threshold": {
+          "type": "object",
+          "properties": {
+            "complexity": {
+              "type": "string",
+              "enum": ["low", "medium", "high"]
+            },
+            "upgrade_to": {
+              "type": "string",
+              "enum": ["task", "worktree"]
+            }
+          }
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
