@@ -225,16 +225,18 @@ PRD_JSON=$(echo "$PRD_JSON" | jq '
 ')
 
 if [[ "$DRY_RUN" == true ]]; then
-  # Calculate queue counts for dry-run display
-  READY_COUNT=$(echo "$PRD_JSON" | jq '[.sections[].tasks[] | select((.depends_on | length) == 0)] | length')
-  BLOCKED_COUNT=$(echo "$PRD_JSON" | jq '[.sections[].tasks[] | select((.depends_on | length) > 0)] | length')
+  # Calculate queue counts for dry-run display (excluding pre-completed tasks)
+  COMPLETED_COUNT=$(echo "$PRD_JSON" | jq '[.sections[].tasks[] | select(.completed == true)] | length')
+  READY_COUNT=$(echo "$PRD_JSON" | jq '[.sections[].tasks[] | select(.completed != true and (.depends_on | length) == 0)] | length')
+  BLOCKED_COUNT=$(echo "$PRD_JSON" | jq '[.sections[].tasks[] | select(.completed != true and (.depends_on | length) > 0)] | length')
   PENDING_COUNT=$(echo "$INFERRED_JSON" | jq '.pending_review | length')
+  REMAINING=$((TASK_COUNT - COMPLETED_COUNT))
 
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   log_info "Dry run - compilation preview"
   echo ""
-  echo "  Tasks:        $TASK_COUNT total"
+  echo "  Tasks:        $TASK_COUNT total ($COMPLETED_COUNT already completed, $REMAINING remaining)"
   echo "  Ready:        $READY_COUNT (can execute immediately)"
   echo "  Blocked:      $BLOCKED_COUNT (waiting on dependencies)"
   echo "  Dependencies: $AUTO_COUNT applied automatically"
@@ -244,11 +246,11 @@ if [[ "$DRY_RUN" == true ]]; then
   echo "    - $STATE_FILE"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # Show first few ready tasks
+  # Show first few ready tasks (incomplete only)
   echo ""
   log_info "First tasks ready to execute:"
   echo "$PRD_JSON" | jq -r '
-    [.sections[].tasks[] | select((.depends_on | length) == 0)] |
+    [.sections[].tasks[] | select(.completed != true and (.depends_on | length) == 0)] |
     .[0:5][] |
     "  \(.id): \(.description)"'
 
@@ -326,51 +328,60 @@ STATE_JSON=$(jq -n \
     }
   }')
 
-# Initialize task states from PRD
-TASK_IDS=$(echo "$PRD_JSON" | jq -r '.sections[].tasks[].id')
-for task_id in $TASK_IDS; do
-  STATE_JSON=$(echo "$STATE_JSON" | jq --arg id "$task_id" '
-    .tasks[$id] = {
-      "status": "pending",
+# Initialize task states from PRD (respecting pre-completed tasks from tasks.md)
+STATE_JSON=$(echo "$STATE_JSON" | jq --argjson prd "$PRD_JSON" '
+  reduce ($prd.sections[].tasks[]) as $task (.;
+    .tasks[$task.id] = {
+      "status": (if $task.completed then "completed" else "pending" end),
       "retries": 0
     }
-  ')
-done
+  )
+')
 
-# Build initial queue
+# Build initial queue (excluding pre-completed tasks from tasks.md)
 STATE_JSON=$(echo "$STATE_JSON" | jq --argjson prd "$PRD_JSON" '
-  # Tasks with no dependencies are ready
-  .queue.ready = [
+  # Pre-completed tasks go to completed queue
+  .queue.completed = [
     $prd.sections[].tasks[] |
-    select((.depends_on | length) == 0) |
+    select(.completed == true) |
     .id
   ] |
-  # Tasks with dependencies are blocked
+  # Incomplete tasks with no dependencies are ready
+  .queue.ready = [
+    $prd.sections[].tasks[] |
+    select(.completed != true and (.depends_on | length) == 0) |
+    .id
+  ] |
+  # Incomplete tasks with dependencies are blocked
   .queue.blocked = [
     $prd.sections[].tasks[] |
-    select((.depends_on | length) > 0) |
+    select(.completed != true and (.depends_on | length) > 0) |
     .id
   ] |
   # Update summary
   .summary.total_tasks = ($prd.summary.total_tasks) |
+  .summary.completed = (.queue.completed | length) |
   .summary.ready = (.queue.ready | length) |
   .summary.blocked = (.queue.blocked | length) |
-  .summary.pending = (.summary.total_tasks - .summary.ready - .summary.blocked)
+  .summary.pending = (.summary.total_tasks - .summary.ready - .summary.blocked - .summary.completed) |
+  .summary.progress_percent = (if .summary.total_tasks > 0 then (.summary.completed * 100 / .summary.total_tasks | floor) else 0 end)
 ')
 
 echo "$STATE_JSON" > "$STATE_FILE"
 log_success "Initialized: $STATE_FILE"
 
 # Summary
+COMPLETED_COUNT=$(echo "$STATE_JSON" | jq '.queue.completed | length')
 READY_COUNT=$(echo "$STATE_JSON" | jq '.queue.ready | length')
 BLOCKED_COUNT=$(echo "$STATE_JSON" | jq '.queue.blocked | length')
 PENDING_COUNT=$(echo "$INFERRED_JSON" | jq '.pending_review | length')
+REMAINING=$((TASK_COUNT - COMPLETED_COUNT))
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 log_success "Compilation complete!"
 echo ""
-echo "  Tasks:        $TASK_COUNT total"
+echo "  Tasks:        $TASK_COUNT total ($COMPLETED_COUNT already completed, $REMAINING remaining)"
 echo "  Ready:        $READY_COUNT (can execute now)"
 echo "  Blocked:      $BLOCKED_COUNT (waiting on dependencies)"
 echo "  Dependencies: $AUTO_COUNT applied automatically"

@@ -601,7 +601,9 @@ get_agent_for_task() {
 
 get_active_count() {
   if [[ -f "$ACTIVE_FILE" ]]; then
-    grep -c "^" "$ACTIVE_FILE" 2>/dev/null || echo "0"
+    local count
+    count=$(grep -c "^" "$ACTIVE_FILE" 2>/dev/null) || count=0
+    echo "$count"
   else
     echo "0"
   fi
