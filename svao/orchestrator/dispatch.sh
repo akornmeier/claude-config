@@ -32,7 +32,6 @@ CHECKPOINT_INTERVAL="${CHECKPOINT_INTERVAL:-5}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-50}"
 
 # Checkpoint configuration
-# Handle nested .claude path - checkpoints are in ~/.claude/svao/ not ~/.claude/.claude/svao/
 CHECKPOINT_DIR="$HOME/.claude/svao/orchestrator/checkpoints"
 CHECKPOINT_INVOKER="$CHECKPOINT_DIR/invoke.sh"
 
