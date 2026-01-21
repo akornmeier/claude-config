@@ -231,12 +231,17 @@ if [[ "$DRY_RUN" == true ]]; then
   BLOCKED_COUNT=$(echo "$PRD_JSON" | jq '[.sections[].tasks[] | select(.completed != true and (.depends_on | length) > 0)] | length')
   PENDING_COUNT=$(echo "$INFERRED_JSON" | jq '.pending_review | length')
   REMAINING=$((TASK_COUNT - COMPLETED_COUNT))
+  if (( TASK_COUNT > 0 )); then
+    PROGRESS_PERCENT=$((COMPLETED_COUNT * 100 / TASK_COUNT))
+  else
+    PROGRESS_PERCENT=0
+  fi
 
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   log_info "Dry run - compilation preview"
   echo ""
-  echo "  Tasks:        $TASK_COUNT total ($COMPLETED_COUNT already completed, $REMAINING remaining)"
+  echo "  Progress:     $PROGRESS_PERCENT% ($COMPLETED_COUNT/$TASK_COUNT completed)"
   echo "  Ready:        $READY_COUNT (can execute immediately)"
   echo "  Blocked:      $BLOCKED_COUNT (waiting on dependencies)"
   echo "  Dependencies: $AUTO_COUNT applied automatically"
@@ -376,12 +381,13 @@ READY_COUNT=$(echo "$STATE_JSON" | jq '.queue.ready | length')
 BLOCKED_COUNT=$(echo "$STATE_JSON" | jq '.queue.blocked | length')
 PENDING_COUNT=$(echo "$INFERRED_JSON" | jq '.pending_review | length')
 REMAINING=$((TASK_COUNT - COMPLETED_COUNT))
+PROGRESS_PERCENT=$(echo "$STATE_JSON" | jq '.summary.progress_percent')
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 log_success "Compilation complete!"
 echo ""
-echo "  Tasks:        $TASK_COUNT total ($COMPLETED_COUNT already completed, $REMAINING remaining)"
+echo "  Progress:     $PROGRESS_PERCENT% ($COMPLETED_COUNT/$TASK_COUNT completed)"
 echo "  Ready:        $READY_COUNT (can execute now)"
 echo "  Blocked:      $BLOCKED_COUNT (waiting on dependencies)"
 echo "  Dependencies: $AUTO_COUNT applied automatically"
