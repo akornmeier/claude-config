@@ -270,12 +270,15 @@ fi
 echo "$PRD_JSON" > "$PRD_FILE"
 log_success "Written: $PRD_FILE"
 
+# Calculate PRD hash AFTER writing (dispatch.sh verifies prd.json, not tasks.md)
+PRD_HASH="sha256:$(shasum -a 256 "$PRD_FILE" | cut -d' ' -f1)"
+
 # Initialize state file
 STATE_JSON=$(jq -n \
   --arg version "1.0.0" \
   --arg change_id "$CHANGE_ID" \
   --arg prd_file "prd.json" \
-  --arg prd_hash "$SOURCE_HASH" \
+  --arg prd_hash "$PRD_HASH" \
   --arg session_id "svao-$(date +%Y%m%d-%H%M%S)" \
   --arg started_at "$TIMESTAMP" \
   '{
