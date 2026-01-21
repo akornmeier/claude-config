@@ -291,7 +291,8 @@ Remember to:
 
   # Use claude CLI if available, otherwise show prompt
   if command -v claude &> /dev/null; then
-    echo "$full_prompt" | claude --print
+    # Grant file operation permissions for non-interactive autonomous agent mode
+    echo "$full_prompt" | claude --print --permission-mode bypassPermissions
   else
     log_warn "Claude CLI not found. Prompt that would be sent:"
     echo "─────────────────────────────────────────"

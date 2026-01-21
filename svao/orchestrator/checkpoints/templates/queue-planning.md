@@ -30,8 +30,16 @@ Analyze the ready queue and decide which tasks to dispatch. Consider:
 Output DISPATCH commands for tasks that should be started (up to {{MAX_PARALLEL}} total active).
 If the queue is empty or all ready tasks have file conflicts, output WAIT with reason.
 
-Example output:
+**Output ONLY commands (nothing else):**
+
 ```
 DISPATCH: 2.3:api-builder:task
 DISPATCH: 3.1:frontend-coder:task
 ```
+
+Or if waiting:
+```
+WAIT: All ready tasks have file conflicts with in-progress tasks
+```
+
+**Do NOT include any explanatory text, analysis, or markdown. Output only commands.**

@@ -14,8 +14,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-log_info() { echo -e "${GREEN}[checkpoint]${NC} $*"; }
-log_warn() { echo -e "${YELLOW}[checkpoint]${NC} $*"; }
+log_info() { echo -e "${GREEN}[checkpoint]${NC} $*" >&2; }
+log_warn() { echo -e "${YELLOW}[checkpoint]${NC} $*" >&2; }
 log_error() { echo -e "${RED}[checkpoint]${NC} $*" >&2; }
 
 # Allowed commands
@@ -38,6 +38,39 @@ FORBIDDEN_COMMANDS=(
     "CHANGE_CRITERIA"
     "ADD_TASK"
 )
+
+# Check if a line looks like it might be a command (starts with uppercase word)
+# Returns 0 if it looks like a command attempt, 1 if it's clearly prose
+looks_like_command() {
+    local line="$1"
+
+    # Skip empty lines, comments, markdown elements
+    [[ -z "$line" ]] && return 1
+    [[ "$line" =~ ^# ]] && return 1
+    [[ "$line" == '```' || "$line" =~ ^\`\`\` ]] && return 1
+
+    # Skip obvious markdown/prose patterns
+    [[ "$line" =~ ^\*\* ]] && return 1  # Bold text
+    [[ "$line" =~ ^\| ]] && return 1    # Table rows
+    [[ "$line" =~ ^- ]] && return 1     # List items (that aren't commands)
+    [[ "$line" =~ ^[0-9]+\. ]] && return 1  # Numbered lists
+    [[ "$line" =~ ^--- ]] && return 1   # Horizontal rules
+    [[ "$line" =~ ^=== ]] && return 1   # Another horizontal rule
+    [[ "$line" =~ ^\[.*\] ]] && return 1  # Markdown links
+
+    # Check if line starts with any known command word (allowed or forbidden)
+    local first_word="${line%%:*}"
+    first_word="${first_word%% *}"
+
+    for cmd in "${ALLOWED_COMMANDS[@]}" "${FORBIDDEN_COMMANDS[@]}"; do
+        if [[ "$first_word" == "$cmd" ]]; then
+            return 0
+        fi
+    done
+
+    # Doesn't look like a command - it's prose
+    return 1
+}
 
 # Validate a single command line
 validate_command() {
@@ -145,15 +178,24 @@ parse_checkpoint_output() {
     local commands=()
     local errors=()
     local has_errors=false
+    local skipped_prose=0
 
     while IFS= read -r line; do
         # Trim whitespace
         line="${line#"${line%%[![:space:]]*}"}"
         line="${line%"${line##*[![:space:]]}"}"
 
-        # Skip empty lines, comments, and markdown code blocks
-        [[ -z "$line" || "$line" =~ ^# || "$line" == '```' || "$line" =~ ^\`\`\` ]] && continue
+        # Skip empty lines
+        [[ -z "$line" ]] && continue
 
+        # Check if this line looks like a command attempt
+        if ! looks_like_command "$line"; then
+            # It's prose/markdown - skip silently
+            ((skipped_prose++)) || true
+            continue
+        fi
+
+        # This looks like a command - validate it
         if validate_command "$line"; then
             # Extract command and args
             local cmd="${line%%:*}"
@@ -179,10 +221,12 @@ parse_checkpoint_output() {
         --argjson commands "$json_commands" \
         --argjson has_errors "$has_errors" \
         --arg error_count "${#errors[@]}" \
+        --argjson skipped "$skipped_prose" \
         '{
             valid: (if $has_errors then false else true end),
             commands: $commands,
-            error_count: ($error_count | tonumber)
+            error_count: ($error_count | tonumber),
+            skipped_prose: $skipped
         }'
 }
 

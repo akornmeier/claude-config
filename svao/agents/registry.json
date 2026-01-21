@@ -16,10 +16,12 @@
       "enabled": true,
       "isolation_default": "task"
     },
-    "test-writer": {
-      "definition": ".claude/svao/agents/test-writer.md",
+    "phase-reviewer": {
+      "definition": ".claude/svao/agents/phase-reviewer.md",
       "enabled": true,
-      "isolation_default": "task"
+      "isolation_default": "worktree",
+      "invocation": "checkpoint",
+      "description": "Expert tester invoked at section completion. Implements missing tests, flags architecture issues for human."
     }
   },
   "orchestrator": {
