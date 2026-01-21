@@ -6,6 +6,7 @@ Infers task dependencies using multiple signals with confidence scoring.
 
 import re
 from dataclasses import dataclass
+from collections import defaultdict
 
 
 @dataclass
@@ -14,6 +15,57 @@ class InferredDependency:
     to_task: str
     confidence: int
     reason: str
+
+
+def parse_task_id(task_id: str) -> tuple[tuple[int, ...], str]:
+    """
+    Parse task ID into numeric parts and optional letter suffix.
+
+    Examples:
+        "1.1.2" -> ((1, 1, 2), "")
+        "1.1.2a" -> ((1, 1, 2), "a")
+        "1.2" -> ((1, 2), "")
+    """
+    parts = task_id.split('.')
+    numeric_parts = []
+    letter_suffix = ""
+
+    for i, part in enumerate(parts):
+        # Check if last part has a letter suffix
+        match = re.match(r'^(\d+)([a-z]?)$', part)
+        if match:
+            numeric_parts.append(int(match.group(1)))
+            if match.group(2):
+                letter_suffix = match.group(2)
+        else:
+            # Fallback: try to extract any leading digits
+            digits = re.match(r'^(\d+)', part)
+            if digits:
+                numeric_parts.append(int(digits.group(1)))
+
+    return tuple(numeric_parts), letter_suffix
+
+
+def task_id_sort_key(task_id: str) -> tuple:
+    """Return a sortable key for task IDs, handling letter suffixes."""
+    parts, suffix = parse_task_id(task_id)
+    # Append suffix as a sortable element (empty string sorts before letters)
+    return (*parts, suffix)
+
+
+def get_subsection_key(task_id: str) -> str:
+    """
+    Get the subsection key for a task ID.
+
+    Examples:
+        "1.1.2" -> "1.1"
+        "1.1.2a" -> "1.1"
+        "1.2" -> "1"
+    """
+    parts, _ = parse_task_id(task_id)
+    if len(parts) >= 2:
+        return '.'.join(str(p) for p in parts[:-1])
+    return str(parts[0]) if parts else ""
 
 
 def extract_stem(filepath: str) -> str:
@@ -48,6 +100,42 @@ def extract_keywords(description: str) -> set[str]:
     return keywords
 
 
+def infer_from_subsection_order(tasks: list[dict]) -> list[InferredDependency]:
+    """
+    Infer sequential dependencies within subsections.
+
+    Tasks within the same subsection (e.g., 1.1.1, 1.1.2, 1.1.3) are assumed
+    to be sequential, with each task depending on the previous one.
+    """
+    dependencies = []
+
+    # Group tasks by subsection
+    subsection_tasks: dict[str, list[str]] = defaultdict(list)
+    for task in tasks:
+        task_id = task['id']
+        subsection = get_subsection_key(task_id)
+        subsection_tasks[subsection].append(task_id)
+
+    # Create sequential dependencies within each subsection
+    for subsection, task_ids in subsection_tasks.items():
+        if len(task_ids) < 2:
+            continue
+
+        # Sort by task ID
+        sorted_ids = sorted(task_ids, key=task_id_sort_key)
+
+        # Each task depends on the previous one
+        for i in range(1, len(sorted_ids)):
+            dependencies.append(InferredDependency(
+                from_task=sorted_ids[i],
+                to_task=sorted_ids[i - 1],
+                confidence=90,
+                reason=f"subsection order: sequential within {subsection}"
+            ))
+
+    return dependencies
+
+
 def infer_from_file_patterns(tasks: list[dict]) -> list[InferredDependency]:
     """Infer dependencies from file naming patterns."""
     dependencies = []
@@ -65,7 +153,7 @@ def infer_from_file_patterns(tasks: list[dict]) -> list[InferredDependency]:
     for stem, task_ids in stem_to_task.items():
         if len(task_ids) > 1:
             # Sort by task ID (earlier tasks are dependencies)
-            sorted_ids = sorted(task_ids, key=lambda x: tuple(map(int, x.split('.'))))
+            sorted_ids = sorted(task_ids, key=task_id_sort_key)
             for i, later_task in enumerate(sorted_ids[1:], 1):
                 for earlier_task in sorted_ids[:i]:
                     dependencies.append(InferredDependency(
@@ -112,10 +200,10 @@ def infer_from_keywords(tasks: list[dict]) -> list[InferredDependency]:
                 if req_kw in keyword_to_tasks:
                     for dep_task_id in keyword_to_tasks[req_kw]:
                         if dep_task_id != task['id']:
-                            # Check if dep_task is earlier
-                            dep_parts = tuple(map(int, dep_task_id.split('.')))
-                            task_parts = tuple(map(int, task['id'].split('.')))
-                            if dep_parts < task_parts:
+                            # Check if dep_task is earlier using safe comparison
+                            dep_key = task_id_sort_key(dep_task_id)
+                            task_key = task_id_sort_key(task['id'])
+                            if dep_key < task_key:
                                 dependencies.append(InferredDependency(
                                     from_task=task['id'],
                                     to_task=dep_task_id,
@@ -162,6 +250,7 @@ def infer_dependencies(parsed_data: dict, confidence_threshold: int = 70) -> dic
 
     # Collect all inferences
     all_deps: list[InferredDependency] = []
+    all_deps.extend(infer_from_subsection_order(all_tasks))  # High confidence sequential order
     all_deps.extend(infer_from_file_patterns(all_tasks))
     all_deps.extend(infer_from_keywords(all_tasks))
     all_deps.extend(infer_from_section_order(parsed_data.get('sections', [])))

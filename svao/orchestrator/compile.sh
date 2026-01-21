@@ -195,6 +195,19 @@ PRD_JSON=$(echo "$PRD_JSON" | jq '
   .summary.explicit_dependencies = (.dependencies.explicit | length)
 ')
 
+# Apply inferred dependencies to task depends_on arrays
+PRD_JSON=$(echo "$PRD_JSON" | jq '
+  # Build a map of task_id -> [dependency_ids]
+  (.dependencies.inferred | group_by(.from) | map({key: .[0].from, value: [.[].to]}) | from_entries) as $inferred_map |
+  # Update each task with its inferred dependencies
+  .sections |= map(
+    .tasks |= map(
+      . as $task |
+      .depends_on = ((.depends_on // []) + ($inferred_map[$task.id] // []) | unique)
+    )
+  )
+')
+
 # Build blocks relationships (reverse of depends_on)
 PRD_JSON=$(echo "$PRD_JSON" | jq '
   # Collect all task IDs and their depends_on arrays
@@ -212,8 +225,44 @@ PRD_JSON=$(echo "$PRD_JSON" | jq '
 ')
 
 if [[ "$DRY_RUN" == true ]]; then
-  log_info "Dry run - would write:"
-  echo "$PRD_JSON"
+  # Calculate queue counts for dry-run display
+  READY_COUNT=$(echo "$PRD_JSON" | jq '[.sections[].tasks[] | select((.depends_on | length) == 0)] | length')
+  BLOCKED_COUNT=$(echo "$PRD_JSON" | jq '[.sections[].tasks[] | select((.depends_on | length) > 0)] | length')
+  PENDING_COUNT=$(echo "$INFERRED_JSON" | jq '.pending_review | length')
+
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log_info "Dry run - compilation preview"
+  echo ""
+  echo "  Tasks:        $TASK_COUNT total"
+  echo "  Ready:        $READY_COUNT (can execute immediately)"
+  echo "  Blocked:      $BLOCKED_COUNT (waiting on dependencies)"
+  echo "  Dependencies: $AUTO_COUNT applied automatically"
+  echo ""
+  echo "  Would write:"
+  echo "    - $PRD_FILE"
+  echo "    - $STATE_FILE"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Show first few ready tasks
+  echo ""
+  log_info "First tasks ready to execute:"
+  echo "$PRD_JSON" | jq -r '
+    [.sections[].tasks[] | select((.depends_on | length) == 0)] |
+    .[0:5][] |
+    "  \(.id): \(.description)"'
+
+  if [[ $READY_COUNT -gt 5 ]]; then
+    echo "  ... and $((READY_COUNT - 5)) more"
+  fi
+
+  if [[ "$PENDING_COUNT" -gt 0 ]]; then
+    echo ""
+    log_info "$PENDING_COUNT low-confidence dependencies available for optional review"
+  fi
+
+  echo ""
+  log_info "Run without --dry-run to compile"
   exit 0
 fi
 
@@ -310,16 +359,28 @@ echo "$STATE_JSON" > "$STATE_FILE"
 log_success "Initialized: $STATE_FILE"
 
 # Summary
-echo ""
-log_success "Compilation complete!"
-log_info "PRD: $PRD_FILE"
-log_info "State: $STATE_FILE"
-
+READY_COUNT=$(echo "$STATE_JSON" | jq '.queue.ready | length')
+BLOCKED_COUNT=$(echo "$STATE_JSON" | jq '.queue.blocked | length')
 PENDING_COUNT=$(echo "$INFERRED_JSON" | jq '.pending_review | length')
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log_success "Compilation complete!"
+echo ""
+echo "  Tasks:        $TASK_COUNT total"
+echo "  Ready:        $READY_COUNT (can execute now)"
+echo "  Blocked:      $BLOCKED_COUNT (waiting on dependencies)"
+echo "  Dependencies: $AUTO_COUNT applied automatically"
+echo ""
+echo "  PRD:   $PRD_FILE"
+echo "  State: $STATE_FILE"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+log_success "Ready to execute!"
+log_info "Run: svao.sh dispatch $CHANGE_ID"
+
 if [[ "$PENDING_COUNT" -gt 0 ]]; then
   echo ""
-  log_warn "Review suggested dependencies:"
-  echo "$INFERRED_JSON" | jq -r '.pending_review[] | "   - \(.from) -> \(.to) (\(.reason), confidence: \(.confidence)%)"'
-  echo ""
+  log_info "Optional: $PENDING_COUNT low-confidence dependencies available for review"
   log_info "Run: svao.sh deps review $CHANGE_ID"
 fi
