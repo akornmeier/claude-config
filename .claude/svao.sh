@@ -1,1 +1,1 @@
-svao/orchestrator/svao.sh
+../svao/orchestrator/svao.sh
