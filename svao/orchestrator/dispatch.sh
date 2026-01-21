@@ -299,13 +299,13 @@ run_checkpoint() {
   local output
   local stderr_file
   stderr_file=$(mktemp)
+  # Ensure temp file is cleaned up even if subsequent code fails
+  trap 'rm -f "$stderr_file"' RETURN
   if ! output=$("$invoker" "$checkpoint_type" "$change_id" $extra_args 2>"$stderr_file"); then
     log_error "Checkpoint invocation failed:"
     cat "$stderr_file" >&2
-    rm -f "$stderr_file"
     return 1
   fi
-  rm -f "$stderr_file"
 
   local valid
   valid=$(echo "$output" | jq -r '.valid // false')
@@ -699,12 +699,19 @@ HUMAN_REVIEW: [type]: [description]  (repeat for each issue)
 
         if [[ -n "$human_reviews" ]]; then
           local tmp_file="${state_file}.tmp.$$"
-          jq --arg section "$section_num" --arg reviews "$human_reviews" '
+          local jq_err_file="$STATUS_DIR/phase-review-section-${section_num}.jq.err"
+          if jq --arg section "$section_num" --arg reviews "$human_reviews" '
             .phase_reviews[$section] = {
               "completed_at": (now | todate),
               "human_reviews": ($reviews | split("\n") | map(select(length > 0)))
             }
-          ' "$state_file" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$state_file"
+          ' "$state_file" > "$tmp_file" 2>"$jq_err_file"; then
+            mv "$tmp_file" "$state_file"
+            rm -f "$jq_err_file"
+          else
+            rm -f "$tmp_file"
+            echo "[$(date +%H:%M:%S)] ${YELLOW}⚠️${NC} Failed to update state with phase review for section $section_num. See $jq_err_file" >&2
+          fi
         fi
 
         echo "completed" > "$status_file"
@@ -843,7 +850,18 @@ ensure_section_branch() {
   log_info "Creating branch for section $section_num..."
 
   local branch_name
-  branch_name=$("$PR_CREATOR" init-branch "$prd_file" "$state_file" "$section_num" 2>/dev/null || echo "")
+  local init_stderr
+  init_stderr=$(mktemp)
+  # Capture stdout (branch name) separately from stderr (logs/errors)
+  if branch_name=$("$PR_CREATOR" init-branch "$prd_file" "$state_file" "$section_num" 2>"$init_stderr"); then
+    # Log stderr at debug level (contains info messages)
+    [[ -s "$init_stderr" ]] && cat "$init_stderr" >&2
+  else
+    log_warn "init-branch failed for section $section_num:"
+    cat "$init_stderr" >&2
+    branch_name=""
+  fi
+  rm -f "$init_stderr"
 
   if [[ -n "$branch_name" ]]; then
     # Record branch in state

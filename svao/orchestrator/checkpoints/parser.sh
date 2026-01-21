@@ -191,7 +191,7 @@ parse_checkpoint_output() {
         # Check if this line looks like a command attempt
         if ! looks_like_command "$line"; then
             # It's prose/markdown - skip silently
-            ((skipped_prose++)) || true
+            skipped_prose=$((skipped_prose + 1))
             continue
         fi
 

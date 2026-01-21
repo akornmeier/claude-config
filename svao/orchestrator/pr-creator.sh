@@ -23,6 +23,11 @@ log_success() { echo -e "${GREEN}✓${NC} $*" >&2; }
 log_warn() { echo -e "${YELLOW}!${NC} $*" >&2; }
 log_error() { echo -e "${RED}x${NC} $*" >&2; }
 
+# Get the default branch name (main, master, etc.)
+get_default_branch() {
+  git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main"
+}
+
 # ─────────────────────────────────────────────────────────────
 # Branch/PR Initialization (First Task of Section)
 # ─────────────────────────────────────────────────────────────
@@ -46,8 +51,10 @@ init_section_branch() {
   if git ls-remote --exit-code --heads origin "$branch_name" &> /dev/null; then
     log_info "Branch $branch_name exists on remote"
     # Fetch without checkout - agent will checkout when it runs
-    # (redirect all output to avoid polluting stdout)
-    git fetch origin "$branch_name:$branch_name" &>/dev/null || true
+    # (redirect all output to avoid polluting stdout, log failures)
+    if ! git fetch origin "$branch_name:$branch_name" &>/dev/null; then
+      log_warn "Failed to fetch $branch_name from remote (may be auth or network issue)"
+    fi
     echo "$branch_name"
     return 0
   fi
@@ -55,11 +62,13 @@ init_section_branch() {
   # Create new branch WITHOUT checking it out (don't disturb user's working directory)
   log_info "Creating section branch: $branch_name"
   local main_branch
-  main_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+  main_branch=$(get_default_branch)
 
   # Create branch from main without checkout using git branch
-  # (redirect all output to avoid polluting stdout)
-  git fetch origin "$main_branch" &>/dev/null || true
+  # (redirect all output to avoid polluting stdout, log failures)
+  if ! git fetch origin "$main_branch" &>/dev/null; then
+    log_warn "Failed to fetch $main_branch from remote (may be auth or network issue)"
+  fi
   git branch "$branch_name" "origin/$main_branch" &>/dev/null || {
     # If branch creation fails, it might already exist
     log_warn "Could not create branch locally, agent will create on first push"
@@ -142,10 +151,12 @@ EOF
   # Create draft PR
   log_info "Creating draft PR for section $section_num..."
   local pr_url
+  local base_branch
+  base_branch=$(get_default_branch)
   pr_url=$(gh pr create \
     --title "$pr_title" \
     --body "$pr_body" \
-    --base main \
+    --base "$base_branch" \
     --head "$branch_name" \
     --draft 2>&1) || {
     if echo "$pr_url" | grep -q "already exists"; then
@@ -359,10 +370,10 @@ EOF
     else
       # Create branch without checkout
       log_info "Creating branch: $branch_name"
-      local main_branch
-      main_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
-      git fetch origin "$main_branch" 2>/dev/null || true
-      git branch "$branch_name" "origin/$main_branch" 2>/dev/null || {
+      local default_branch
+      default_branch=$(get_default_branch)
+      git fetch origin "$default_branch" 2>/dev/null || true
+      git branch "$branch_name" "origin/$default_branch" 2>/dev/null || {
         log_error "Failed to create branch: $branch_name"
         return 1
       }
@@ -379,11 +390,13 @@ EOF
   # Create PR using --head flag (no checkout needed)
   log_info "Creating pull request..."
   local pr_url
+  local base_branch
+  base_branch=$(get_default_branch)
   pr_url=$(gh pr create \
     --title "$pr_title" \
     --body "$pr_body" \
     --head "$branch_name" \
-    --base main 2>&1) || {
+    --base "$base_branch" 2>&1) || {
     # Check if PR already exists
     if echo "$pr_url" | grep -q "already exists"; then
       log_warn "PR already exists for this branch"
