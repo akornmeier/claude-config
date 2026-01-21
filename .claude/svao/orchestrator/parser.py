@@ -156,7 +156,7 @@ def main():
 
     # Output results
     if result.errors:
-        print("Parsing errors:", file=sys.stderr)
+        print("❌ Parsing errors:", file=sys.stderr)
         for error in result.errors:
             print(f"   - {error}", file=sys.stderr)
         sys.exit(2)

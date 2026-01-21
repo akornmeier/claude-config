@@ -9,6 +9,9 @@ ORCHESTRATOR_DIR="$(dirname "$SCRIPT_DIR")"
 TEMPLATES_DIR="$SCRIPT_DIR/templates"
 PARSER="$SCRIPT_DIR/parser.sh"
 
+# Configuration
+DEFAULT_MAX_PARALLEL=3
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -366,14 +369,14 @@ build_prompt() {
     prompt="${prompt//\{\{PRD_SUMMARY\}\}/$prd_summary}"
     prompt="${prompt//\{\{STATE_SUMMARY\}\}/$state_summary}"
 
-    # Build checkpoint-specific content (load template and strip {{BASE_TEMPLATE}} line)
+    # Build checkpoint-specific content (load template and strip {{BASE_TEMPLATE}} reference line)
     local specific_content
-    specific_content=$(tail -n +2 "$template_file")  # Skip first line ({{BASE_TEMPLATE}})
+    specific_content=$(tail -n +2 "$template_file")  # Skip first line (template reference: {{BASE_TEMPLATE}})
 
     # Build checkpoint-specific context
     case "$checkpoint_type" in
         queue-planning)
-            local max_parallel="${extra_args:-3}"
+            local max_parallel="${extra_args:-$DEFAULT_MAX_PARALLEL}"
             local ready_queue
             ready_queue=$(build_ready_queue "$prd_file" "$state_file")
             local in_progress
@@ -445,20 +448,12 @@ invoke_claude() {
 
     log_info "Invoking Claude checkpoint..."
 
-    # Write prompt to temp file for claude CLI
-    local prompt_file
-    prompt_file=$(mktemp)
-    echo "$prompt" > "$prompt_file"
-
-    # Invoke claude with the prompt
+    # Invoke claude with the prompt directly
     local output
-    if ! output=$(claude --print -p "$(cat "$prompt_file")" 2>&1); then
+    if ! output=$(claude --print -p "$prompt" 2>&1); then
         log_error "Claude invocation failed: $output"
-        rm -f "$prompt_file"
         return 1
     fi
-
-    rm -f "$prompt_file"
 
     echo "$output"
 }

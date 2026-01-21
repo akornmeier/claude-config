@@ -208,6 +208,6 @@ if __name__ == "__main__":
 
     result = infer_dependencies(data)
 
-    print(f"Inferred {len(result['auto_apply'])} high-confidence dependencies")
-    print(f"{len(result['pending_review'])} dependencies need review")
+    print(f"✓ Inferred {len(result['auto_apply'])} high-confidence dependencies")
+    print(f"⚠ {len(result['pending_review'])} dependencies need review")
     print(json.dumps(result, indent=2))

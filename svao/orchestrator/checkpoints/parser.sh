@@ -77,7 +77,7 @@ validate_command() {
     case "$command" in
         DISPATCH)
             # Format: DISPATCH: task-id:agent:isolation
-            if [[ ! "$line" =~ ^DISPATCH:\ *[0-9]+\.[0-9]+:[a-z-]+:(task|worktree)$ ]]; then
+            if [[ ! "$line" =~ ^DISPATCH:\ *[0-9]+\.[0-9]+:[a-z_-]+:(task|worktree)$ ]]; then
                 log_error "REJECTED: Invalid DISPATCH format. Expected 'DISPATCH: X.Y:agent:isolation'"
                 return 1
             fi
@@ -91,7 +91,7 @@ validate_command() {
             ;;
         REASSIGN)
             # Format: REASSIGN: task-id:agent
-            if [[ ! "$line" =~ ^REASSIGN:\ *[0-9]+\.[0-9]+:[a-z-]+$ ]]; then
+            if [[ ! "$line" =~ ^REASSIGN:\ *[0-9]+\.[0-9]+:[a-z_-]+$ ]]; then
                 log_error "REJECTED: Invalid REASSIGN format. Expected 'REASSIGN: X.Y:agent'"
                 return 1
             fi

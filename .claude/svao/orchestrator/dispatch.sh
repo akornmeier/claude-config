@@ -18,10 +18,10 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 log() { echo -e "[$(date +%H:%M:%S)] $*"; }
-log_info() { echo -e "[$(date +%H:%M:%S)] ${BLUE}i${NC} $*"; }
-log_success() { echo -e "[$(date +%H:%M:%S)] ${GREEN}OK${NC} $*"; }
-log_warn() { echo -e "[$(date +%H:%M:%S)] ${YELLOW}!${NC} $*"; }
-log_error() { echo -e "[$(date +%H:%M:%S)] ${RED}x${NC} $*" >&2; }
+log_info() { echo -e "[$(date +%H:%M:%S)] ${BLUE}ℹ${NC} $*"; }
+log_success() { echo -e "[$(date +%H:%M:%S)] ${GREEN}✅${NC} $*"; }
+log_warn() { echo -e "[$(date +%H:%M:%S)] ${YELLOW}⚠️${NC} $*"; }
+log_error() { echo -e "[$(date +%H:%M:%S)] ${RED}❌${NC} $*" >&2; }
 log_agent() { echo -e "[$(date +%H:%M:%S)] ${CYAN}agent${NC} $*"; }
 
 # Configuration

@@ -135,7 +135,7 @@ if [[ -f "$PROPOSAL_FILE" ]]; then
 fi
 
 # Calculate source hash
-SOURCE_HASH="sha256:$(cat "$TASKS_FILE" | shasum -a 256 | cut -d' ' -f1)"
+SOURCE_HASH="sha256:$(shasum -a 256 "$TASKS_FILE" | cut -d' ' -f1)"
 
 # Build PRD JSON
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
