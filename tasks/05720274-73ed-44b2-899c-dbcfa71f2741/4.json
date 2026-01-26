@@ -1,0 +1,9 @@
+{
+  "id": "4",
+  "subject": "Update nx.json yarn commands to pnpm",
+  "description": "Replace all yarn exec, yarn workspace, and standalone yarn commands in nx.json with pnpm equivalents",
+  "activeForm": "Updating nx.json commands",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": []
+}

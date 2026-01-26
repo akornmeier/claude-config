@@ -1,0 +1,9 @@
+{
+  "id": "7",
+  "subject": "Run pnpm install and verify",
+  "description": "Delete yarn.lock, run pnpm install, verify lockfile generation and no critical errors",
+  "activeForm": "Running pnpm install",
+  "status": "in_progress",
+  "blocks": [],
+  "blockedBy": []
+}

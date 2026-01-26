@@ -7,10 +7,10 @@
 set -euo pipefail
 
 STATUS_DIR="${SVAO_STATUS_DIR:-/tmp/svao}"
-SESSION_ID="${SVAO_SESSION_ID:-unknown}"
 TASK_ID="${SVAO_TASK_ID:-unknown}"
 
-STATUS_FILE="$STATUS_DIR/$SESSION_ID/$TASK_ID.status.json"
+# STATUS_DIR already includes session ID (set by dispatch.sh as /tmp/svao/$SESSION_ID)
+STATUS_FILE="$STATUS_DIR/$TASK_ID.status.json"
 
 mkdir -p "$(dirname "$STATUS_FILE")"
 
@@ -48,14 +48,26 @@ write_complete() {
   local files_json="${2:-[]}"
   local commits_json="${3:-[]}"
 
+  # Calculate duration in seconds
+  local started="${SVAO_STARTED:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+  local now_epoch=$(date "+%s")
+  local start_epoch
+  # macOS date format
+  start_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$started" "+%s" 2>/dev/null) || \
+    # GNU date fallback
+    start_epoch=$(date -d "$started" "+%s" 2>/dev/null) || \
+    start_epoch=$now_epoch
+  local duration=$((now_epoch - start_epoch))
+
   jq -n \
     --arg task_id "$TASK_ID" \
     --arg agent "${SVAO_AGENT:-unknown}" \
-    --arg started "${SVAO_STARTED:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
+    --arg started "$started" \
     --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg signal "$signal" \
     --argjson files "$files_json" \
     --argjson commits "$commits_json" \
+    --argjson duration "$duration" \
     '{
       task_id: $task_id,
       agent: $agent,
@@ -66,7 +78,7 @@ write_complete() {
       files_changed: $files,
       commits: $commits,
       discovered_dependencies: [],
-      duration_seconds: 0
+      duration_seconds: $duration
     }' > "$STATUS_FILE"
 }
 

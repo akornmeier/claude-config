@@ -1,0 +1,9 @@
+{
+  "id": "3",
+  "subject": "Update root package.json for PNPM",
+  "description": "Update packageManager field to pnpm@10.28.1, convert resolutions to pnpm.overrides, handle yarn patches",
+  "activeForm": "Updating root package.json",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": []
+}

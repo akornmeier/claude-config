@@ -1,9 +1,14 @@
 {
-  "updated_at": null,
-  "agents": {},
+  "updated_at": "2026-01-21T19:57:58Z",
+  "agents": {
+    "unknown": {
+      "total_completed": 2,
+      "total_failed": 0
+    }
+  },
   "global": {
-    "total_orchestration_sessions": 0,
-    "total_tasks_completed": 0,
-    "avg_parallel_utilization": 0
+    "total_orchestration_sessions": 1,
+    "total_tasks_completed": 2,
+    "avg_parallel_utilization": 0.8843537414965985
   }
 }

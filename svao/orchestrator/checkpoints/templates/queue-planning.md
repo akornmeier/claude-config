@@ -33,8 +33,8 @@ If the queue is empty or all ready tasks have file conflicts, output WAIT with r
 **Output ONLY commands (nothing else):**
 
 ```
-DISPATCH: 2.3:api-builder:task
-DISPATCH: 3.1:frontend-coder:task
+DISPATCH: 2.3.1:api-builder:task
+DISPATCH: 3.1.1:frontend-coder:task
 ```
 
 Or if waiting:

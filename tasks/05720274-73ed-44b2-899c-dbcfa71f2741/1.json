@@ -1,0 +1,9 @@
+{
+  "id": "1",
+  "subject": "Create pnpm-workspace.yaml",
+  "description": "Create pnpm-workspace.yaml with workspace patterns matching current yarn workspaces config",
+  "activeForm": "Creating pnpm-workspace.yaml",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": []
+}

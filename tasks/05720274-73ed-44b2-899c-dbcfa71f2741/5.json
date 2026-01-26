@@ -1,0 +1,9 @@
+{
+  "id": "5",
+  "subject": "Update root package.json scripts",
+  "description": "Update all scripts in root package.json from yarn to pnpm syntax",
+  "activeForm": "Updating root scripts",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": []
+}

@@ -109,37 +109,37 @@ validate_command() {
     # Command-specific validation
     case "$command" in
         DISPATCH)
-            # Format: DISPATCH: task-id:agent:isolation
-            if [[ ! "$line" =~ ^DISPATCH:\ *[0-9]+\.[0-9]+:[a-z_-]+:(task|worktree)$ ]]; then
-                log_error "REJECTED: Invalid DISPATCH format. Expected 'DISPATCH: X.Y:agent:isolation'"
+            # Format: DISPATCH: task-id:agent:isolation (task-id is X.Y.Z)
+            if [[ ! "$line" =~ ^DISPATCH:\ *[0-9]+\.[0-9]+\.[0-9]+:[a-z_-]+:(task|worktree)$ ]]; then
+                log_error "REJECTED: Invalid DISPATCH format. Expected 'DISPATCH: X.Y.Z:agent:isolation'"
                 return 1
             fi
             ;;
         REORDER)
-            # Format: REORDER: task-id, task-id, ...
-            if [[ ! "$line" =~ ^REORDER:\ *[0-9]+\.[0-9]+(,\ *[0-9]+\.[0-9]+)*$ ]]; then
-                log_error "REJECTED: Invalid REORDER format. Expected 'REORDER: X.Y, X.Z, ...'"
+            # Format: REORDER: task-id, task-id, ... (task-id is X.Y.Z)
+            if [[ ! "$line" =~ ^REORDER:\ *[0-9]+\.[0-9]+\.[0-9]+(,\ *[0-9]+\.[0-9]+\.[0-9]+)*$ ]]; then
+                log_error "REJECTED: Invalid REORDER format. Expected 'REORDER: X.Y.Z, X.Y.Z, ...'"
                 return 1
             fi
             ;;
         REASSIGN)
-            # Format: REASSIGN: task-id:agent
-            if [[ ! "$line" =~ ^REASSIGN:\ *[0-9]+\.[0-9]+:[a-z_-]+$ ]]; then
-                log_error "REJECTED: Invalid REASSIGN format. Expected 'REASSIGN: X.Y:agent'"
+            # Format: REASSIGN: task-id:agent (task-id is X.Y.Z)
+            if [[ ! "$line" =~ ^REASSIGN:\ *[0-9]+\.[0-9]+\.[0-9]+:[a-z_-]+$ ]]; then
+                log_error "REJECTED: Invalid REASSIGN format. Expected 'REASSIGN: X.Y.Z:agent'"
                 return 1
             fi
             ;;
         ADD_DEPENDENCY)
-            # Format: ADD_DEPENDENCY: from:to:confidence
-            if [[ ! "$line" =~ ^ADD_DEPENDENCY:\ *[0-9]+\.[0-9]+:[0-9]+\.[0-9]+:[0-9]+$ ]]; then
-                log_error "REJECTED: Invalid ADD_DEPENDENCY format. Expected 'ADD_DEPENDENCY: X.Y:X.Z:NN'"
+            # Format: ADD_DEPENDENCY: from:to:confidence (task-ids are X.Y.Z)
+            if [[ ! "$line" =~ ^ADD_DEPENDENCY:\ *[0-9]+\.[0-9]+\.[0-9]+:[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
+                log_error "REJECTED: Invalid ADD_DEPENDENCY format. Expected 'ADD_DEPENDENCY: X.Y.Z:X.Y.Z:NN'"
                 return 1
             fi
             ;;
         UNBLOCK)
-            # Format: UNBLOCK: task-id:strategy[:details]
-            if [[ ! "$line" =~ ^UNBLOCK:\ *[0-9]+\.[0-9]+:(alternate-agent|skip-and-continue|escalate) ]]; then
-                log_error "REJECTED: Invalid UNBLOCK format. Expected 'UNBLOCK: X.Y:strategy[:details]'"
+            # Format: UNBLOCK: task-id:strategy[:details] (task-id is X.Y.Z)
+            if [[ ! "$line" =~ ^UNBLOCK:\ *[0-9]+\.[0-9]+\.[0-9]+:(alternate-agent|skip-and-continue|escalate) ]]; then
+                log_error "REJECTED: Invalid UNBLOCK format. Expected 'UNBLOCK: X.Y.Z:strategy[:details]'"
                 return 1
             fi
             ;;

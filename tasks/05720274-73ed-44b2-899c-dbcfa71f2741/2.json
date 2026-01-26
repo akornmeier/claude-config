@@ -1,0 +1,9 @@
+{
+  "id": "2",
+  "subject": "Create .npmrc with PNPM settings",
+  "description": "PNPM settings will go in package.json under 'pnpm' key instead of .npmrc (which is gitignored for local verdaccio config)",
+  "activeForm": "Creating .npmrc configuration",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": []
+}

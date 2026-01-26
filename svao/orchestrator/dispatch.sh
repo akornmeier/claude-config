@@ -47,6 +47,192 @@ SESSION_ID=""
 STATUS_DIR=""
 ACTIVE_FILE=""
 RETRIES_FILE=""
+EVENT_FIFO=""
+
+# Event-driven configuration
+EVENT_TIMEOUT="${EVENT_TIMEOUT:-30}"  # Seconds to wait for events before running periodic tasks
+
+# ─────────────────────────────────────────────────────────────
+# Event FIFO Management
+# ─────────────────────────────────────────────────────────────
+
+setup_event_fifo() {
+  EVENT_FIFO="$STATUS_DIR/events.fifo"
+
+  # Remove stale FIFO if exists
+  [[ -p "$EVENT_FIFO" ]] && rm -f "$EVENT_FIFO"
+
+  # Create new FIFO
+  mkfifo "$EVENT_FIFO"
+
+  # Open FIFO for reading on FD 3 (non-blocking by opening for write too)
+  exec 3<>"$EVENT_FIFO"
+
+  log_info "Event FIFO created: $EVENT_FIFO"
+}
+
+teardown_event_fifo() {
+  # Close FD 3
+  exec 3<&- 2>/dev/null || true
+
+  # Remove FIFO
+  [[ -n "$EVENT_FIFO" && -p "$EVENT_FIFO" ]] && rm -f "$EVENT_FIFO"
+}
+
+emit_event() {
+  local event_type="$1"
+  local identifier="$2"
+
+  if [[ -n "$EVENT_FIFO" && -p "$EVENT_FIFO" ]]; then
+    echo "${event_type}:${identifier}" >> "$EVENT_FIFO"
+  fi
+}
+
+read_event() {
+  local timeout="${1:-$EVENT_TIMEOUT}"
+  local event=""
+
+  # Read with timeout from FD 3
+  if read -t "$timeout" -r event <&3 2>/dev/null; then
+    echo "$event"
+    return 0
+  fi
+
+  return 1  # Timeout
+}
+
+process_event() {
+  local prd_file="$1"
+  local state_file="$2"
+  local event="$3"
+
+  local event_type="${event%%:*}"
+  local identifier="${event#*:}"
+
+  case "$event_type" in
+    TASK_COMPLETE)
+      log_success "Event: Task $identifier completed"
+      remove_active_by_task "$identifier"
+      check_agent_status "$state_file" "$identifier"
+      local result=$?
+      case $result in
+        0) ;;  # Success - handled in check_agent_status
+        1|2) handle_failure "$prd_file" "$state_file" "$identifier" ;;
+      esac
+      ;;
+    TASK_FAILED)
+      log_error "Event: Task $identifier failed"
+      remove_active_by_task "$identifier"
+      handle_failure "$prd_file" "$state_file" "$identifier"
+      ;;
+    PHASE_COMPLETE)
+      log_success "Event: Phase review for section $identifier completed"
+      local phase_status_file="$STATUS_DIR/phase-review-section-${identifier}.status"
+      echo "completed" > "$phase_status_file"
+      ;;
+    PHASE_FAILED)
+      log_warn "Event: Phase review for section $identifier failed"
+      local phase_status_file="$STATUS_DIR/phase-review-section-${identifier}.status"
+      echo "failed" > "$phase_status_file"
+      ;;
+    *)
+      log_warn "Unknown event type: $event_type"
+      ;;
+  esac
+}
+
+remove_active_by_task() {
+  local task_id="$1"
+  if [[ -f "$ACTIVE_FILE" ]]; then
+    grep -v ":${task_id}$" "$ACTIVE_FILE" > "${ACTIVE_FILE}.tmp" 2>/dev/null || true
+    mv "${ACTIVE_FILE}.tmp" "$ACTIVE_FILE"
+  fi
+}
+
+# ─────────────────────────────────────────────────────────────
+# Event Loop Helpers
+# ─────────────────────────────────────────────────────────────
+
+dispatch_to_capacity() {
+  local prd_file="$1"
+  local state_file="$2"
+
+  local active_count=$(get_active_count)
+  local available=$((MAX_PARALLEL - active_count))
+
+  if [[ $available -le 0 ]]; then
+    return 0
+  fi
+
+  local ready_tasks
+  ready_tasks=$(jq -r '.queue.ready[]' "$state_file" 2>/dev/null | head -n "$available")
+
+  for task_id in $ready_tasks; do
+    [[ -z "$task_id" ]] && continue
+    local agent=$(get_agent_for_task "$prd_file" "$task_id")
+    dispatch_agent "$prd_file" "$state_file" "$task_id" "$agent"
+    ((active_count++))
+    [[ $active_count -ge $MAX_PARALLEL ]] && break
+  done
+}
+
+check_section_completions() {
+  local prd_file="$1"
+  local state_file="$2"
+
+  local sections
+  sections=$(jq -r '.sections[].number' "$prd_file")
+
+  for section_num in $sections; do
+    if should_trigger_completion_review "$prd_file" "$state_file" "$section_num"; then
+      local phase_status_file="$STATUS_DIR/phase-review-section-${section_num}.status"
+      local phase_status="none"
+      [[ -f "$phase_status_file" ]] && phase_status=$(cat "$phase_status_file")
+
+      case "$phase_status" in
+        none)
+          local section_branch
+          section_branch=$(ensure_section_branch "$prd_file" "$state_file" "$section_num")
+          log_info "Section $section_num branch: $section_branch"
+          start_phase_reviewer "$prd_file" "$state_file" "$section_num"
+          ;;
+        running)
+          # Phase reviewer running - will emit event when done
+          ;;
+        completed)
+          log_success "Phase review completed for section $section_num"
+          run_checkpoint "completion-review" "$prd_file" "$state_file" "--section $section_num"
+          echo "checkpoint_done" > "$phase_status_file"
+          ;;
+        failed)
+          log_warn "Phase review failed for section $section_num, running checkpoint anyway"
+          run_checkpoint "completion-review" "$prd_file" "$state_file" "--section $section_num"
+          echo "checkpoint_done" > "$phase_status_file"
+          ;;
+        checkpoint_done)
+          # Already processed
+          ;;
+      esac
+    fi
+  done
+}
+
+check_blocked_tasks() {
+  local prd_file="$1"
+  local state_file="$2"
+
+  local blocked_tasks
+  blocked_tasks=$(jq -r '.queue.blocked[]?' "$state_file" 2>/dev/null || echo "")
+
+  for task_id in $blocked_tasks; do
+    [[ -z "$task_id" ]] && continue
+    local retries
+    retries=$(get_retries "$task_id")
+    if [[ $retries -ge $MAX_RETRIES ]]; then
+      run_checkpoint "blocker-resolution" "$prd_file" "$state_file" "--task $task_id"
+    fi
+  done
+}
 
 # ─────────────────────────────────────────────────────────────
 # Resume Detection
@@ -197,8 +383,9 @@ rebuild_queue() {
     # Capture state file as $state before iterating (jq scoping fix)
     . as $state |
     ($prd[0]) as $p |
-    # Ready: pending tasks with all deps completed
-    .queue.ready = [
+    # Ready: pending tasks with all deps completed, sorted by task ID for phase ordering
+    # Sort ensures 5.1.1 < 5.1.2 < 5.2.1 (complete phase before moving to next)
+    .queue.ready = ([
       $p.sections[].tasks[] |
       . as $task |
       select(
@@ -206,7 +393,7 @@ rebuild_queue() {
         (($task.depends_on // []) - $completed | length) == 0
       ) |
       .id
-    ] |
+    ] | sort_by(. | split(".") | map(tonumber))) |
     # In progress
     .queue.in_progress = [$state.tasks | to_entries[] | select(.value.status == "in_progress") | .key] |
     # Blocked: pending with unmet deps
@@ -249,13 +436,26 @@ should_trigger_completion_review() {
   local state_file="$2"
   local section_num="$3"
 
+  # First check: If ALL tasks in section are marked completed in the PRD itself,
+  # this section was completed in a prior session - skip review
+  local prd_incomplete_count
+  prd_incomplete_count=$(jq -r --arg n "$section_num" '
+    [.sections[] | select(.number == ($n | tonumber)) | .tasks[] | select(.completed != true)] | length
+  ' "$prd_file")
+
+  if [[ "$prd_incomplete_count" == "0" ]]; then
+    # Section was fully completed in a prior session (PRD has all tasks marked complete)
+    # No need for phase review - it was already done
+    return 1
+  fi
+
   # Get all tasks in section
   local section_tasks
   section_tasks=$(jq -r --arg n "$section_num" '
     .sections[] | select(.number == ($n | tonumber)) | .tasks[].id
   ' "$prd_file")
 
-  # Check if all are completed
+  # Check if all are completed (in current session state)
   while IFS= read -r task_id; do
     [[ -z "$task_id" ]] && continue
     local status
@@ -265,7 +465,7 @@ should_trigger_completion_review() {
     fi
   done <<< "$section_tasks"
 
-  # Check if already reviewed
+  # Check if already reviewed in this session
   local reviewed
   reviewed=$(jq -r --arg n "$section_num" '
     .checkpoints.reviewed_sections // [] | map(select(. == ($n | tonumber))) | length
@@ -299,13 +499,14 @@ run_checkpoint() {
   local output
   local stderr_file
   stderr_file=$(mktemp)
-  # Ensure temp file is cleaned up even if subsequent code fails
-  trap 'rm -f "$stderr_file"' RETURN
+
   if ! output=$("$invoker" "$checkpoint_type" "$change_id" $extra_args 2>"$stderr_file"); then
     log_error "Checkpoint invocation failed:"
     cat "$stderr_file" >&2
+    rm -f "$stderr_file"
     return 1
   fi
+  rm -f "$stderr_file"
 
   local valid
   valid=$(echo "$output" | jq -r '.valid // false')
@@ -685,6 +886,9 @@ HUMAN_REVIEW: [type]: [description]  (repeat for each issue)
   local status_file="$STATUS_DIR/phase-review-section-${section_num}.status"
 
   if command -v claude &> /dev/null; then
+    # Pass event FIFO path to subshell
+    local event_fifo="$EVENT_FIFO"
+
     # Run as truly async background subagent (no wait)
     (
       echo "running" > "$status_file"
@@ -715,8 +919,12 @@ HUMAN_REVIEW: [type]: [description]  (repeat for each issue)
         fi
 
         echo "completed" > "$status_file"
+        # Emit completion event to FIFO
+        [[ -n "$event_fifo" && -p "$event_fifo" ]] && echo "PHASE_COMPLETE:$section_num" >> "$event_fifo"
       else
         echo "failed" > "$status_file"
+        # Emit failure event to FIFO
+        [[ -n "$event_fifo" && -p "$event_fifo" ]] && echo "PHASE_FAILED:$section_num" >> "$event_fifo"
       fi
     ) &
 
@@ -964,24 +1172,41 @@ git push origin $section_branch
 
   log_agent "Dispatching $agent_type for task $task_id (branch: $section_branch)"
 
-  # Update state
-  update_task_status "$state_file" "$task_id" "in_progress"
+  # Set start time for tracking
+  local started_at
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  # Update state with full task metadata
+  local tmp_file="${state_file}.tmp.$$"
+  jq --arg id "$task_id" --arg status "in_progress" \
+     --arg agent "$agent_type" --arg started "$started_at" \
+     --arg updated "$started_at" \
+     '.tasks[$id].status = $status |
+      .tasks[$id].assigned_to = $agent |
+      .tasks[$id].started_at = $started |
+      .session.updated_at = $updated' \
+     "$state_file" > "$tmp_file"
+  mv "$tmp_file" "$state_file"
 
   # Set environment for status writer
   export SVAO_STATUS_DIR="$STATUS_DIR"
   export SVAO_SESSION_ID="$SESSION_ID"
   export SVAO_TASK_ID="$task_id"
   export SVAO_AGENT="$agent_type"
-  export SVAO_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  export SVAO_STARTED="$started_at"
 
   # Write initial status
   "$SCRIPT_DIR/status-writer.sh" running "starting" "Initializing..."
+
+  # Pass event FIFO path to subshell
+  export SVAO_EVENT_FIFO="$EVENT_FIFO"
 
   # Dispatch agent (background)
   (
     if command -v claude &> /dev/null; then
       # Grant file operation permissions for non-interactive autonomous agent mode
-      echo "$prompt" | claude --print --permission-mode bypassPermissions 2>&1 | tee "$STATUS_DIR/${task_id}.output"
+      # Redirect tee stdout to /dev/null to prevent output leaking to terminal
+      echo "$prompt" | claude --print --permission-mode bypassPermissions 2>&1 | tee "$STATUS_DIR/${task_id}.output" >/dev/null
       exit_code=${PIPESTATUS[1]}
     else
       log_warn "Claude CLI not found, simulating..."
@@ -991,14 +1216,20 @@ git push origin $section_branch
       exit_code=0
     fi
 
-    # Write final status based on output
+    # Write final status based on output and emit event
     if grep -q "TASK_COMPLETE" "$STATUS_DIR/${task_id}.output"; then
       "$SCRIPT_DIR/status-writer.sh" complete "TASK_COMPLETE"
+      # Emit completion event to FIFO
+      [[ -n "$SVAO_EVENT_FIFO" && -p "$SVAO_EVENT_FIFO" ]] && echo "TASK_COMPLETE:$task_id" >> "$SVAO_EVENT_FIFO"
     elif grep -q "BLOCKED:" "$STATUS_DIR/${task_id}.output"; then
       signal=$(grep -o "BLOCKED:[A-Z]*" "$STATUS_DIR/${task_id}.output" | head -1)
       "$SCRIPT_DIR/status-writer.sh" failed "$signal" "See output file"
+      # Emit failure event to FIFO
+      [[ -n "$SVAO_EVENT_FIFO" && -p "$SVAO_EVENT_FIFO" ]] && echo "TASK_FAILED:$task_id" >> "$SVAO_EVENT_FIFO"
     else
       "$SCRIPT_DIR/status-writer.sh" failed "UNKNOWN" "Agent exited without signal"
+      # Emit failure event to FIFO
+      [[ -n "$SVAO_EVENT_FIFO" && -p "$SVAO_EVENT_FIFO" ]] && echo "TASK_FAILED:$task_id" >> "$SVAO_EVENT_FIFO"
     fi
   ) &
 
@@ -1072,10 +1303,20 @@ process_completed_agents() {
       check_agent_status "$state_file" "$task_id"
       local result=$?
 
-      if [[ $result -eq 2 ]]; then
-        # Failed - handle retry
-        handle_failure "$prd_file" "$state_file" "$task_id"
-      fi
+      case $result in
+        0)
+          # Success - already handled in check_agent_status
+          ;;
+        1)
+          # Status file not found - agent crashed or status writer failed
+          log_warn "Agent for task $task_id exited but no status file found - treating as failure"
+          handle_failure "$prd_file" "$state_file" "$task_id"
+          ;;
+        2)
+          # Failed - handle retry
+          handle_failure "$prd_file" "$state_file" "$task_id"
+          ;;
+      esac
     fi
   done < "$ACTIVE_FILE"
 }
@@ -1152,135 +1393,108 @@ run_dispatch_loop() {
     "$PROGRESS_WRITER" log "$progress_file" session_start "Starting orchestration with $MAX_PARALLEL parallel agents" || true
   fi
 
-  log_info "Starting dispatch loop (max parallel: $MAX_PARALLEL)"
+  # Setup event FIFO for reactive dispatch
+  setup_event_fifo
+  trap 'teardown_event_fifo' EXIT
 
-  while [[ $ITERATION -lt $MAX_ITERATIONS ]]; do
-    ((ITERATION++))
-    log "--- Iteration $ITERATION ---"
+  log_info "Starting event-driven dispatch loop (max parallel: $MAX_PARALLEL)"
 
-    # Rebuild queue
-    rebuild_queue "$prd_file" "$state_file"
+  # Initial queue rebuild and dispatch
+  rebuild_queue "$prd_file" "$state_file"
+  dispatch_to_capacity "$prd_file" "$state_file"
 
-    # Check completion
-    local progress=$(jq -r '.summary.progress_percent' "$state_file")
+  # Track time for periodic tasks
+  local last_checkpoint_time=$(date +%s)
+  local last_periodic_time=$(date +%s)
+  local checkpoint_interval_secs=$((CHECKPOINT_INTERVAL * 6))  # Convert iterations to ~seconds (was 5 iter * ~5s each)
+
+  # Track last event for display
+  local last_event="Waiting for events..."
+
+  # Render initial display
+  "$PROGRESS_WRITER" live "$state_file" "$STATUS_DIR" "$last_event" || true
+
+  # Event-driven main loop
+  while true; do
+    # Check for completion
+    local progress
+    progress=$(jq -r '.summary.progress_percent' "$state_file")
     if [[ "$progress" == "100" ]]; then
-      log_success "All tasks complete!"
-      local progress_file="$(dirname "$state_file")/progress.md"
+      last_event="All tasks complete!"
+      "$PROGRESS_WRITER" live "$state_file" "$STATUS_DIR" "$last_event" || true
       local summary
-      summary=$(jq -r '"Completed \(.summary.completed) tasks in \(.session.iteration) iterations"' "$state_file")
+      summary=$(jq -r '"Completed \(.summary.completed) tasks"' "$state_file")
       "$PROGRESS_WRITER" log "$progress_file" session_complete "$summary" || true
       break
     fi
 
-    # Process completed agents
-    process_completed_agents "$prd_file" "$state_file"
-
-    # Check for checkpoint triggers
-    if should_trigger_queue_planning "$state_file"; then
-      run_checkpoint "queue-planning" "$prd_file" "$state_file" "--max-parallel $MAX_PARALLEL"
-    fi
-
-    # Check for section completion and trigger review
-    local sections
-    sections=$(jq -r '.sections[].number' "$prd_file")
-    for section_num in $sections; do
-      if should_trigger_completion_review "$prd_file" "$state_file" "$section_num"; then
-        # Check if phase review is already running or completed for this section
-        local phase_status_file="$STATUS_DIR/phase-review-section-${section_num}.status"
-        local phase_status="none"
-        [[ -f "$phase_status_file" ]] && phase_status=$(cat "$phase_status_file")
-
-        case "$phase_status" in
-          none)
-            # Ensure branch/PR exists (handles pre-completed sections from tasks.md)
-            local section_branch
-            section_branch=$(ensure_section_branch "$prd_file" "$state_file" "$section_num")
-            log_info "Section $section_num branch: $section_branch"
-
-            # Start phase-reviewer as background subagent
-            start_phase_reviewer "$prd_file" "$state_file" "$section_num"
-            ;;
-          running)
-            log_info "Phase reviewer still running for section $section_num..."
-            ;;
-          completed)
-            # Phase review done, run completion checkpoint
-            log_success "Phase review completed for section $section_num"
-            run_checkpoint "completion-review" "$prd_file" "$state_file" "--section $section_num"
-            # Mark as processed so we don't re-run checkpoint
-            echo "checkpoint_done" > "$phase_status_file"
-            ;;
-          failed)
-            log_warn "Phase review failed for section $section_num, running checkpoint anyway"
-            run_checkpoint "completion-review" "$prd_file" "$state_file" "--section $section_num"
-            echo "checkpoint_done" > "$phase_status_file"
-            ;;
-          checkpoint_done)
-            # Already processed, skip
-            ;;
-        esac
-      fi
-    done
-
-    # Check for blocked tasks needing resolution
-    local blocked_tasks
-    blocked_tasks=$(jq -r '.queue.blocked[]?' "$state_file" 2>/dev/null || echo "")
-    for task_id in $blocked_tasks; do
-      [[ -z "$task_id" ]] && continue
-      local retries
-      retries=$(get_retries "$task_id")
-      if [[ $retries -ge $MAX_RETRIES ]]; then
-        run_checkpoint "blocker-resolution" "$prd_file" "$state_file" "--task $task_id"
-      fi
-    done
-
-    # Dispatch new agents
+    # Check for deadlock (no active, no ready, but blocked exists)
     local active_count=$(get_active_count)
-    local available=$((MAX_PARALLEL - active_count))
+    local ready_count=$(jq -r '.queue.ready | length' "$state_file")
+    local blocked_count=$(jq -r '.queue.blocked | length' "$state_file")
 
-    if [[ $available -gt 0 ]]; then
-      local ready_tasks=$(jq -r '.queue.ready[]' "$state_file" | head -n "$available")
-
-      for task_id in $ready_tasks; do
-        local agent=$(get_agent_for_task "$prd_file" "$task_id")
-        dispatch_agent "$prd_file" "$state_file" "$task_id" "$agent"
-        ((active_count++))
-        [[ $active_count -ge $MAX_PARALLEL ]] && break
-      done
+    if [[ $active_count -eq 0 && $ready_count -eq 0 && $blocked_count -gt 0 ]]; then
+      last_event="Deadlock: no ready tasks, $blocked_count blocked"
+      "$PROGRESS_WRITER" live "$state_file" "$STATUS_DIR" "$last_event" || true
+      break
     fi
 
-    # Update parallel utilization metric
-    calculate_parallel_utilization "$state_file" "$MAX_PARALLEL"
+    # Wait for event or timeout
+    local event=""
+    if event=$(read_event "$EVENT_TIMEOUT"); then
+      # Event received - process it immediately
+      last_event="$event"
+      process_event "$prd_file" "$state_file" "$event"
 
-    # Save state
-    save_state "$state_file"
+      # Rebuild queue and dispatch next task
+      rebuild_queue "$prd_file" "$state_file"
+      dispatch_to_capacity "$prd_file" "$state_file"
 
-    # Render live status
-    "$PROGRESS_WRITER" status "$state_file" || true
-
-    # Wait before next iteration
-    active_count=$(get_active_count)
-    if [[ $active_count -gt 0 ]]; then
-      log_agent "Waiting for $active_count active agent(s)..."
-      sleep "$POLL_INTERVAL"
+      # Update metrics and render live display
+      calculate_parallel_utilization "$state_file" "$MAX_PARALLEL"
+      save_state "$state_file"
+      "$PROGRESS_WRITER" live "$state_file" "$STATUS_DIR" "$last_event" || true
     else
-      local ready_count=$(jq -r '.queue.ready | length' "$state_file")
-      if [[ "$ready_count" -eq 0 ]]; then
-        local blocked_count=$(jq -r '.queue.blocked | length' "$state_file")
-        if [[ "$blocked_count" -gt 0 ]]; then
-          log_warn "No ready tasks, $blocked_count blocked"
-          break
-        fi
+      # Timeout - run periodic tasks
+      local now=$(date +%s)
+      last_event="Periodic check ($(date +%H:%M:%S))"
+
+      # Run checkpoint if interval elapsed
+      if [[ $((now - last_checkpoint_time)) -ge $checkpoint_interval_secs ]]; then
+        ((ITERATION++))
+
+        # Rebuild queue to catch any missed completions
+        rebuild_queue "$prd_file" "$state_file"
+
+        # Also check PIDs for any agents that completed without emitting events
+        process_completed_agents "$prd_file" "$state_file"
+
+        # Run queue-planning checkpoint
+        run_checkpoint "queue-planning" "$prd_file" "$state_file" "--max-parallel $MAX_PARALLEL"
+
+        last_checkpoint_time=$now
       fi
+
+      # Check section completion and phase reviews
+      check_section_completions "$prd_file" "$state_file"
+
+      # Check for blocked tasks needing resolution
+      check_blocked_tasks "$prd_file" "$state_file"
+
+      # Dispatch to capacity (in case queue changed)
+      dispatch_to_capacity "$prd_file" "$state_file"
+
+      # Update and render live display
+      calculate_parallel_utilization "$state_file" "$MAX_PARALLEL"
+      save_state "$state_file"
+      "$PROGRESS_WRITER" live "$state_file" "$STATUS_DIR" "$last_event" || true
+
+      last_periodic_time=$now
     fi
   done
 
-  if [[ $ITERATION -ge $MAX_ITERATIONS ]]; then
-    log_warn "Max iterations reached ($MAX_ITERATIONS)"
-  fi
-
   # Final summary
-  log_info "Dispatch loop complete"
+  log_info "Event-driven dispatch loop complete"
   jq '.summary' "$state_file"
 
   # Persist metrics to global file
@@ -1290,6 +1504,9 @@ run_dispatch_loop() {
   local tmp_file="${state_file}.tmp.$$"
   jq '.session.status = "completed"' "$state_file" > "$tmp_file"
   mv "$tmp_file" "$state_file"
+
+  # Cleanup (trap will also run, but be explicit)
+  teardown_event_fifo
 }
 
 # Entry point

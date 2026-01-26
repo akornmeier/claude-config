@@ -1,0 +1,9 @@
+{
+  "id": "6",
+  "subject": "Update scripts/ directory for PNPM",
+  "description": "Update task runner and build scripts in scripts/ directory to use pnpm",
+  "activeForm": "Updating scripts directory",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": []
+}

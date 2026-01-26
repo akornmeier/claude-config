@@ -90,7 +90,8 @@
       "properties": {
         "id": {
           "type": "string",
-          "pattern": "^\\d+\\.\\d+$"
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Task ID in format section.phase.task (e.g., 1.2.3)"
         },
         "description": { "type": "string" },
         "files": {
