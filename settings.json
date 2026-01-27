@@ -43,7 +43,8 @@
     "security-guidance@claude-code-plugins": true,
     "superpowers-developing-for-claude-code@superpowers-marketplace": true,
     "superpowers@superpowers-marketplace": true,
-    "typescript-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": true,
+    "auth@claude-skills": true
   },
   "alwaysThinkingEnabled": true
 }

@@ -180,6 +180,16 @@
         "lastUpdated": "2026-01-21T14:30:19.973Z",
         "gitCommitSha": "96276205880a60fd66bbae981f5ab568e70c4cbf"
       }
+    ],
+    "auth@claude-skills": [
+      {
+        "scope": "user",
+        "installPath": "/Users/tk/.claude/plugins/cache/claude-skills/auth/16e4d4fa91dc",
+        "version": "16e4d4fa91dc",
+        "installedAt": "2026-01-26T23:32:20.543Z",
+        "lastUpdated": "2026-01-26T23:32:20.543Z",
+        "gitCommitSha": "16e4d4fa91dc883e649c950d030d4515038a3bf4"
+      }
     ]
   }
 }
